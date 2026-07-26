@@ -11,7 +11,9 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "start": "node server/serve.js"
+    "start": "node server/serve.js",
+    "icons": "node scripts/make-icons.mjs",
+    "pack:win": "npm run build && node scripts/pack-win.mjs"
   },
   "dependencies": {
     "diff": "^9.0.0",
@@ -24,6 +26,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "esbuild": "^0.28.1",
     "oxlint": "^1.71.0",
     "vite": "^8.1.1"
   }

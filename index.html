@@ -5,6 +5,11 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Dictation Time</title>
+    <!-- Installable app: gives students on Chromebooks a shelf icon and its own
+         window, which is as close to "installing" as a managed Chromebook gets. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <meta name="theme-color" content="#2563eb" />
     <script>
       // Set the theme before first paint so there's no flash of the wrong
       // theme; kept in sync with App.jsx's own read/write of this key.

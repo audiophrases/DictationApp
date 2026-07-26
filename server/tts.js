@@ -1,4 +1,5 @@
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
+import { cacheKey, getOrSynthesize } from './ttsCache.js';
 
 // Extracted from vite.config.js so the exact same handler can run under the
 // Vite dev/preview server (local development) AND the standalone production
@@ -19,6 +20,27 @@ export const VOICES = {
 
 const DEFAULT_VOICE = VOICES['en-US'];
 
+// A single sentence is all this ever needs to say. The endpoint is unauthenticated
+// on a public deploy, so cap the input rather than forwarding anything upstream
+// (and cacheing it) on request.
+const MAX_TEXT_LENGTH = 3000;
+
+async function synthesize(voice, rate, text) {
+  const tts = new MsEdgeTTS();
+  try {
+    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+    const { audioStream } = tts.toStream(text, rate !== 1 ? { rate } : undefined);
+
+    const chunks = [];
+    for await (const chunk of audioStream) {
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+  } finally {
+    tts.close();
+  }
+}
+
 export async function handleTTSRequest(req, res) {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
@@ -33,28 +55,26 @@ export async function handleTTSRequest(req, res) {
       res.end(JSON.stringify({ error: 'Missing text parameter' }));
       return;
     }
+    if (text.length > MAX_TEXT_LENGTH) {
+      res.statusCode = 413;
+      res.end(JSON.stringify({ error: `Text too long (max ${MAX_TEXT_LENGTH} characters)` }));
+      return;
+    }
 
     const voice = VOICES[lang] || DEFAULT_VOICE;
 
-    const tts = new MsEdgeTTS();
-    try {
-      await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-      const { audioStream } = tts.toStream(text, rate !== 1 ? { rate } : undefined);
+    // Repeats — a replay, the next student on the same passage, the same lesson
+    // tomorrow — are served from the cache without touching the network.
+    const { audio, source } = await getOrSynthesize(cacheKey(voice, rate, text), () =>
+      synthesize(voice, rate, text)
+    );
 
-      const chunks = [];
-      for await (const chunk of audioStream) {
-        chunks.push(chunk);
-      }
-      const audioBuffer = Buffer.concat(chunks);
-
-      res.setHeader('Content-Type', 'audio/mpeg');
-      res.setHeader('Content-Length', audioBuffer.length);
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      res.setHeader('X-Voice', voice);
-      res.end(audioBuffer);
-    } finally {
-      tts.close();
-    }
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Length', audio.length);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('X-Voice', voice);
+    res.setHeader('X-Cache', source);
+    res.end(audio);
   } catch (error) {
     console.error('TTS Error:', error);
     res.statusCode = 500;

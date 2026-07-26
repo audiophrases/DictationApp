@@ -8,23 +8,46 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handleTTSRequest } from './tts.js';
 import { handleDictationRequest } from './dictation.js';
+import { cacheStats } from './ttsCache.js';
 
 const PORT = Number(process.env.PORT) || 4173;
+// Loopback by default, and that default matters: listening on every interface
+// makes Windows Defender pop the "Allow this app to communicate on networks?"
+// dialog, which needs an administrator to approve — the one thing the portable
+// pack must never require. A host that needs to accept outside traffic (Render)
+// sets HOST=0.0.0.0 explicitly.
+const HOST = process.env.HOST || '127.0.0.1';
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.join(SERVER_DIR, '..');
-const DIST_DIR = path.join(APP_ROOT, 'dist');
+// Normally the sibling dist/ of this repo. The Windows portable pack overrides it
+// because there the server is a single bundled file, free to sit anywhere.
+const DIST_DIR = process.env.DIST_DIR
+  ? path.resolve(process.env.DIST_DIR)
+  : path.join(APP_ROOT, 'dist');
 
 const STATIC_MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  // Without the right type the browser won't treat this as an app manifest, and
+  // "Install app" never appears.
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.ico': 'image/x-icon',
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
 };
+
+// Everything Vite emits under /assets is content-hashed, so a given URL can
+// never change and is safe to cache forever. These three are NOT hashed and must
+// always be revalidated:
+//   index.html   a redeploy repoints it at new hashed assets
+//   sw.js        a year-long cache would pin students to an old service worker,
+//                which would then keep serving the old app out of its own cache
+//   manifest     name/icon changes should actually reach installed apps
+const ALWAYS_REVALIDATE = new Set(['/index.html', '/sw.js', '/manifest.webmanifest']);
 
 function sendJson(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -61,13 +84,11 @@ function serveStatic(pathname, res) {
   }
 
   const ext = path.extname(filePath).toLowerCase();
-  // index.html is the only unhashed file Vite emits, so it must always be
-  // revalidated (a redeploy changes which hashed /assets files it points at).
-  // Everything else is content-hashed by Vite, so it's safe to cache forever.
-  const isEntryHtml = decoded === '/index.html';
   res.writeHead(200, {
     'Content-Type': STATIC_MIME[ext] || 'application/octet-stream',
-    'Cache-Control': isEntryHtml ? 'no-cache' : 'public, max-age=31536000, immutable',
+    'Cache-Control': ALWAYS_REVALIDATE.has(decoded)
+      ? 'no-cache'
+      : 'public, max-age=31536000, immutable',
   });
   fs.createReadStream(filePath).pipe(res);
 }
@@ -82,7 +103,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://localhost:${PORT}`);
 
     if (url.pathname === '/health') {
-      sendJson(res, 200, { ok: true, service: 'dictationapp' });
+      sendJson(res, 200, { ok: true, service: 'dictationapp', ttsCache: cacheStats() });
       return;
     }
 
@@ -108,6 +129,18 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`DictationApp running at http://127.0.0.1:${PORT}`);
+// A student double-clicking the launcher twice is the common case here, so say
+// what happened in words they can act on rather than dumping a stack trace.
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use — Dictation Time may already be running.`);
+    console.error('Close the other Dictation Time window, then start it again.');
+    process.exit(1);
+  }
+  throw error;
+});
+
+server.listen(PORT, HOST, () => {
+  const shown = HOST === '0.0.0.0' ? `port ${PORT}` : `http://${HOST}:${PORT}`;
+  console.log(`DictationApp running at ${shown}`);
 });

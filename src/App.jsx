@@ -44,7 +44,7 @@ function loadSource() {
 }
 
 function App() {
-  const { speak, stop, isSpeaking } = useSpeech();
+  const { speak, prefetch, stop, isSpeaking } = useSpeech();
   const { waking, requireServer, dismiss: dismissWaking } = useServerReady();
   const [appState, setAppState] = useState('setup'); // setup, dictating, finished
   const [theme, setTheme] = useState(loadTheme);
@@ -136,6 +136,26 @@ function App() {
     requireServer();
     speak(text, settings.lang, { rate: settings.rate });
   };
+
+  // Fetch the next sentence's audio while the student is still typing this one,
+  // so pressing Enter starts playback immediately instead of waiting on a round
+  // trip to the voice service. Silent and best-effort — see useSpeech.prefetch.
+  useEffect(() => {
+    if (appState !== 'dictating') return;
+    prefetch(sentences[currentIndex + 1], settings.lang, { rate: settings.rate });
+  }, [appState, sentences, currentIndex, settings.lang, settings.rate, prefetch]);
+
+  // The very first sentence is the wait every student notices, so warm it while
+  // the passage is still on screen. Debounced so typing a passage by hand
+  // doesn't fire a request per keystroke.
+  useEffect(() => {
+    if (appState !== 'setup' || !passage.trim()) return;
+    const timer = setTimeout(() => {
+      const [first] = splitIntoSentences(passage);
+      prefetch(first, settings.lang, { rate: settings.rate });
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [appState, passage, settings.lang, settings.rate, prefetch]);
 
   const startDictation = () => {
     const cleanedSentences = splitIntoSentences(passage);

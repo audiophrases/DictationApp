@@ -11,12 +11,18 @@ import { handleDictationRequest } from './dictation.js';
 import { cacheStats } from './ttsCache.js';
 
 const PORT = Number(process.env.PORT) || 4173;
-// Loopback by default, and that default matters: listening on every interface
-// makes Windows Defender pop the "Allow this app to communicate on networks?"
-// dialog, which needs an administrator to approve — the one thing the portable
-// pack must never require. A host that needs to accept outside traffic (Render)
-// sets HOST=0.0.0.0 explicitly.
-const HOST = process.env.HOST || '127.0.0.1';
+// All interfaces by default, because that is the only default that cannot break
+// a deploy: a host's health check reaches the container over its routable
+// address, and a loopback-bound server is invisible to it.
+//
+// Loopback is what the LOCAL launchers want — binding every interface makes
+// Windows Defender pop the "allow this app on your networks?" dialog, which
+// needs an administrator, and the portable pack must never require one. So they
+// set HOST=127.0.0.1 themselves (see the pack launcher and start_local.bat).
+// Deliberately this way round: a launcher that forgets it prompts for a
+// firewall rule, which is visible and recoverable, whereas a host that doesn't
+// pass HOST fails its health check with nothing obviously wrong.
+const HOST = process.env.HOST || '0.0.0.0';
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.join(SERVER_DIR, '..');
 // Normally the sibling dist/ of this repo. The Windows portable pack overrides it

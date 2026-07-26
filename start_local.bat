@@ -3,6 +3,11 @@ setlocal
 cd /d "%~dp0"
 title Dictation Time (local)
 
+rem Loopback only. server/serve.js defaults to every interface because that is
+rem what a host needs, but locally that makes Windows Defender ask permission,
+rem and that dialog needs an administrator.
+set HOST=127.0.0.1
+
 where node >nul 2>nul
 if errorlevel 1 (
   echo Node.js is required but was not found.

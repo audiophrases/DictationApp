@@ -15,11 +15,10 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     envVars:
-      # server/serve.js binds loopback by default (so the local portable pack
-      # never trips a Windows firewall prompt, which would need admin rights).
-      # A hosted instance has to accept traffic from Render's router instead.
-      - key: HOST
-        value: "0.0.0.0"
+      # No HOST here on purpose: server/serve.js already defaults to every
+      # interface, which is what a host needs. Setting it here would make the
+      # deploy depend on a blueprint env-var sync landing — and when that didn't
+      # land, the server bound loopback and the health check could not reach it.
       # Vite 8 / rolldown require ^20.19.0 || >=22.12.0 (they import
       # `styleText` from node:util, added in 20.12.0). Node 24 is what this is
       # developed and tested against; the bare major keeps picking up 24.x

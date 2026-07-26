@@ -27,10 +27,16 @@ already present (an admin-gated MSI).
 
 Two details make the no-admin claim real, and both are load-bearing:
 
-- The server binds **loopback only** by default. Listening on all interfaces
-  makes Windows Defender ask permission, and that dialog needs an
-  administrator. Hosts that must accept outside traffic set `HOST=0.0.0.0`
-  ([render.yaml](render.yaml) does).
+- **The launcher sets `HOST=127.0.0.1`**, so the server binds loopback only.
+  Listening on all interfaces makes Windows Defender ask permission, and that
+  dialog needs an administrator. `start_local.bat` sets it too.
+  `server/serve.js` itself defaults to every interface, because that is the only
+  default that can't break a deploy — a host's health check reaches the container
+  over its routable address and can't see a loopback-bound server. The local
+  launchers opt in to loopback rather than the hosted path opting out: a launcher
+  that forgets it merely prompts for a firewall rule, which is visible and
+  recoverable, whereas a host missing the setting fails its health check with
+  nothing obviously wrong.
 - Voice audio is cached under `%TEMP%`, inside the student's own profile.
   Set `TTS_CACHE_DIR` to keep it elsewhere (e.g. on the USB stick).
 

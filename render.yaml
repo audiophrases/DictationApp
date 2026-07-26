@@ -9,7 +9,7 @@
 services:
   - type: web
     name: dictationapp
-    env: node
+    runtime: node
     plan: free
     buildCommand: npm install && npm run build
     startCommand: npm start

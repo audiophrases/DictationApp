@@ -1,0 +1,19 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# In the Render dashboard: New + > Blueprint > pick this repo. Render reads
+# this file and pre-fills the service below; no manual config needed.
+#
+# server/serve.js serves both the built app (dist/) and the neural TTS +
+# dictation-fetch APIs from a single process. Free tier: sleeps after ~15 min
+# idle; the app's own warm-up ping (src/useServerReady.js) wakes it and shows
+# an overlay while it does.
+services:
+  - type: web
+    name: dictationapp
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20.11.1

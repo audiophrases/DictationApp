@@ -1,0 +1,113 @@
+// Standalone production server: serves the built app (dist/) plus the same
+// /api/tts and /api/dictation handlers Vite uses in dev. This is what runs
+// both for the local production launcher (start_local.bat) and on Render —
+// one server, two homes, so the neural voices work identically in both.
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { handleTTSRequest } from './tts.js';
+import { handleDictationRequest } from './dictation.js';
+
+const PORT = Number(process.env.PORT) || 4173;
+const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
+const APP_ROOT = path.join(SERVER_DIR, '..');
+const DIST_DIR = path.join(APP_ROOT, 'dist');
+
+const STATIC_MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+};
+
+function sendJson(res, status, body) {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(body));
+}
+
+function serveStatic(pathname, res) {
+  let decoded;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    sendJson(res, 400, { error: 'Bad request' });
+    return;
+  }
+  if (decoded === '/') decoded = '/index.html';
+
+  const filePath = path.normalize(path.join(DIST_DIR, decoded));
+  const insideRoot = filePath.startsWith(DIST_DIR + path.sep) || filePath === path.join(DIST_DIR, 'index.html');
+  if (!insideRoot) {
+    sendJson(res, 403, { error: 'Forbidden' });
+    return;
+  }
+
+  let stat;
+  try {
+    stat = fs.statSync(filePath);
+  } catch {
+    sendJson(res, 404, { error: 'Not found' });
+    return;
+  }
+  if (!stat.isFile()) {
+    sendJson(res, 404, { error: 'Not found' });
+    return;
+  }
+
+  const ext = path.extname(filePath).toLowerCase();
+  // index.html is the only unhashed file Vite emits, so it must always be
+  // revalidated (a redeploy changes which hashed /assets files it points at).
+  // Everything else is content-hashed by Vite, so it's safe to cache forever.
+  const isEntryHtml = decoded === '/index.html';
+  res.writeHead(200, {
+    'Content-Type': STATIC_MIME[ext] || 'application/octet-stream',
+    'Cache-Control': isEntryHtml ? 'no-cache' : 'public, max-age=31536000, immutable',
+  });
+  fs.createReadStream(filePath).pipe(res);
+}
+
+if (!fs.existsSync(path.join(DIST_DIR, 'index.html'))) {
+  console.error(`No build found at ${DIST_DIR}. Run "npm run build" first.`);
+  process.exit(1);
+}
+
+const server = http.createServer(async (req, res) => {
+  try {
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+
+    if (url.pathname === '/health') {
+      sendJson(res, 200, { ok: true, service: 'dictationapp' });
+      return;
+    }
+
+    if (url.pathname === '/api/tts') {
+      await handleTTSRequest(req, res);
+      return;
+    }
+
+    if (url.pathname === '/api/dictation') {
+      await handleDictationRequest(req, res);
+      return;
+    }
+
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      sendJson(res, 405, { error: 'Method not allowed' });
+      return;
+    }
+
+    serveStatic(url.pathname, res);
+  } catch (error) {
+    console.error('Unhandled server error:', error);
+    if (!res.headersSent) sendJson(res, 500, { error: 'Internal server error' });
+  }
+});
+
+server.listen(PORT, () => {
+  console.log(`DictationApp running at http://127.0.0.1:${PORT}`);
+});

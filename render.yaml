@@ -15,5 +15,9 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     envVars:
+      # Vite 8 / rolldown require ^20.19.0 || >=22.12.0 (they import
+      # `styleText` from node:util, added in 20.12.0). Node 24 is what this is
+      # developed and tested against; the bare major keeps picking up 24.x
+      # security patches instead of freezing on one patch release.
       - key: NODE_VERSION
-        value: 20.11.1
+        value: "24"

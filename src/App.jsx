@@ -45,7 +45,7 @@ function loadSource() {
 
 function App() {
   const { speak, stop, isSpeaking } = useSpeech();
-  const [waking, dismissWaking] = useServerReady();
+  const { waking, requireServer, dismiss: dismissWaking } = useServerReady();
   const [appState, setAppState] = useState('setup'); // setup, dictating, finished
   const [theme, setTheme] = useState(loadTheme);
   const [settings, setSettings] = useState(loadSettings);
@@ -129,7 +129,13 @@ function App() {
     };
   }, [appState]);
 
-  const speakSentence = (text) => speak(text, settings.lang, { rate: settings.rate });
+  // Every playback path funnels through here, so this is the one place that
+  // needs to tell the warm-up hook someone is actually waiting on audio —
+  // the only condition under which the waking overlay is allowed to appear.
+  const speakSentence = (text) => {
+    requireServer();
+    speak(text, settings.lang, { rate: settings.rate });
+  };
 
   const startDictation = () => {
     const cleanedSentences = splitIntoSentences(passage);

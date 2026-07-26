@@ -1,17 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-// How long a health check gets before we conclude the server is cold-starting
-// (Render's free tier can take up to ~50s to wake from sleep). The local
-// production server never sleeps, so it gets a much shorter budget — if
-// something (antivirus, a browser extension, first-run disk I/O) ever slows
-// that one fetch down, this bounds the worst case to a few seconds instead of
-// up to a minute.
-const STARTUP_HEALTH_TIMEOUT_MS = 55000;
+// How long a health check gets before we give up waiting on it. A free-tier
+// host can take ~50s to wake from sleep; the local production server never
+// sleeps, so it gets a much shorter budget — if something on the machine
+// (antivirus, a browser extension) slows that one fetch down, this bounds the
+// worst case to a few seconds.
+const REMOTE_HEALTH_TIMEOUT_MS = 55000;
 const LOCAL_HEALTH_TIMEOUT_MS = 4000;
-// Only flip on the "please wait" overlay if the check is still pending after
-// this long — an already-warm server (or the local production server, which
-// never sleeps) resolves well under this, so those users never see it.
-const OVERLAY_DELAY_MS = 900;
+// Grace period before the overlay appears once audio is actually wanted, so a
+// server that answers promptly never flashes it.
+const OVERLAY_DELAY_MS = 600;
 const KEEP_ALIVE_INTERVAL_MS = 10 * 60 * 1000;
 
 function isLocalHost() {
@@ -32,58 +30,78 @@ async function pingHealth(timeoutMs) {
 }
 
 /**
- * Warms the server on mount (same-origin /health — works unmodified whether
- * this page is served by the local production server or a Render deploy) and
- * reports whether the "waking up" overlay should be shown. Re-checks when the
- * tab regains visibility (covers a Render free-tier re-sleep while the tab
- * was backgrounded past the keep-alive interval) and keeps the deployed
- * server warm with a periodic ping while the tab is visible.
+ * Warms the server in the background on mount — same-origin /health, so it
+ * works unmodified under the local production server or a hosted deploy. On a
+ * free-tier host that ping is what wakes a sleeping instance, so the cold
+ * start happens while the page is being read rather than when audio is first
+ * needed.
  *
- * Returns [waking, dismiss] — dismiss lets the student close the overlay by
- * hand. The overlay is purely informational (the app works the moment the
- * server responds regardless), so nothing should ever be able to trap
- * someone behind it if detection itself misbehaves.
+ * That warm-up is deliberately invisible: page load never shows an overlay.
+ * The overlay appears only once `requireServer()` says audio is actually
+ * wanted AND the check hasn't settled yet — i.e. only when someone is really
+ * waiting on it. "Settled" means the check finished either way: if it failed
+ * there is no server to wait for (e.g. a static host with no /health), so
+ * playback should just proceed and fall back rather than hang behind a
+ * spinner that would never clear.
+ *
+ * Returns { waking, requireServer, dismiss }.
  */
 export function useServerReady() {
-  const [waking, setWaking] = useState(false);
+  const [settled, setSettled] = useState(false);
+  const [audioWanted, setAudioWanted] = useState(false);
+  const settledRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
-    let overlayTimer = null;
 
-    const check = () => {
-      overlayTimer = setTimeout(() => {
-        if (!cancelled) setWaking(true);
-      }, OVERLAY_DELAY_MS);
-      const timeout = isLocalHost() ? LOCAL_HEALTH_TIMEOUT_MS : STARTUP_HEALTH_TIMEOUT_MS;
-      pingHealth(timeout).finally(() => {
-        clearTimeout(overlayTimer);
-        if (!cancelled) setWaking(false);
-      });
+    const markSettled = () => {
+      if (cancelled) return;
+      settledRef.current = true;
+      setSettled(true);
     };
 
-    check();
+    const timeout = isLocalHost() ? LOCAL_HEALTH_TIMEOUT_MS : REMOTE_HEALTH_TIMEOUT_MS;
+    pingHealth(timeout).finally(markSettled);
 
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') check();
-    };
-    document.addEventListener('visibilitychange', onVisible);
-
+    // Keep a deployed instance from idling back to sleep mid-lesson, and
+    // re-warm it after the tab has been in the background. Both are silent —
+    // they never gate the overlay.
     let keepAliveId = null;
+    let onVisible = null;
     if (!isLocalHost()) {
       keepAliveId = setInterval(() => {
         if (document.visibilityState === 'visible') pingHealth(5000);
       }, KEEP_ALIVE_INTERVAL_MS);
+      onVisible = () => {
+        if (document.visibilityState === 'visible') pingHealth(REMOTE_HEALTH_TIMEOUT_MS);
+      };
+      document.addEventListener('visibilitychange', onVisible);
     }
 
     return () => {
       cancelled = true;
-      clearTimeout(overlayTimer);
-      document.removeEventListener('visibilitychange', onVisible);
       if (keepAliveId) clearInterval(keepAliveId);
+      if (onVisible) document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);
 
-  const dismiss = () => setWaking(false);
-  return [waking, dismiss];
+  // Called right before playback. Only flags that someone is waiting; if the
+  // check already settled this is a no-op and no overlay ever appears.
+  const requireServer = useCallback(() => {
+    if (!settledRef.current) setAudioWanted(true);
+  }, []);
+
+  const [graceElapsed, setGraceElapsed] = useState(false);
+  useEffect(() => {
+    if (!audioWanted || settled) {
+      setGraceElapsed(false);
+      return;
+    }
+    const t = setTimeout(() => setGraceElapsed(true), OVERLAY_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [audioWanted, settled]);
+
+  const dismiss = useCallback(() => setAudioWanted(false), []);
+
+  return { waking: audioWanted && !settled && graceElapsed, requireServer, dismiss };
 }

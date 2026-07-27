@@ -19,7 +19,7 @@
 // build time with VITE_WORKER_BASE (the GitHub Actions workflow passes it
 // through) and at runtime with localStorage['dictation.workerBase'], which is
 // how you point a local build at `wrangler dev` without rebuilding.
-const DEFAULT_WORKER_BASE = '';
+const DEFAULT_WORKER_BASE = 'https://dictation-api.eugenime.workers.dev';
 
 // The Render service, used only by a build published to a static host, which
 // has no voices of its own. Overridable at build time with VITE_TTS_BASE.

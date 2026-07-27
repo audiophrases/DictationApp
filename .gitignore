@@ -17,8 +17,12 @@ dist-ssr
 pack
 
 # Cloudflare Worker: local secrets and wrangler's build/state directory.
-# .dev.vars holds the roster secret and the teacher password hash.
+# .dev.vars holds the roster secret and the teacher password hash;
+# secrets.local.json is the same values in the shape `wrangler secret bulk`
+# wants. Keep a copy somewhere safe outside the repo — Cloudflare secrets are
+# write-only and cannot be read back once set.
 cloudflare/.dev.vars
+cloudflare/secrets.local.json
 .wrangler
 
 # Editor directories and files

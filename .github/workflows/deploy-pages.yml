@@ -1,0 +1,59 @@
+# Publishes the built app to GitHub Pages, which is where students open it.
+# Pages is a static host with no cold start, so the page appears instantly; the
+# voices still come from Render and assignments from the Cloudflare Worker,
+# both called cross-origin (see src/lib/api.js).
+#
+# One-time setup: repo Settings > Pages > Source = "GitHub Actions".
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; queue instead, and let a newer one wait rather
+# than cancel, so a push is never silently dropped.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          # Tells src/lib/api.js that this build lands on a static host, so it
+          # must call the voice server by absolute URL instead of same-origin.
+          # Only this workflow sets it — the Render build and the portable pack
+          # both serve their own APIs.
+          VITE_PAGES_BUILD: '1'
+          # Both default to values baked into src/lib/api.js; set these as repo
+          # variables (Settings > Secrets and variables > Actions > Variables)
+          # to point a deploy somewhere else without editing code.
+          VITE_WORKER_BASE: ${{ vars.VITE_WORKER_BASE }}
+          VITE_TTS_BASE: ${{ vars.VITE_TTS_BASE }}
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -2,7 +2,25 @@
 
 A dictation practice app: type what you hear, read aloud with natural neural
 voices across several languages/dialects, or auto-fetch a real practice
-passage from a plain-language encyclopedia.
+passage from a plain-language encyclopedia. Teachers can also set a passage as
+an assignment: students sign in with their PinPlay logins, and the text stays
+hidden until they have handed their work in.
+
+## Where the app runs
+
+Three pieces, in three places, for one reason each:
+
+| Piece | Where | Why there |
+| --- | --- | --- |
+| The app itself | **GitHub Pages** | A static host has no cold start, so opening a link is instant. |
+| `/api/tts`, `/api/dictation` | **Render** (`server/`) | The Edge voices need a Node proxy — see [Voices](#voices). It may sleep; only the teacher ever waits for it. |
+| Assignments, logins, results | **Cloudflare Worker + R2** (`cloudflare/`) | Always on, so a class signing in at 8:55am waits for nothing. |
+
+Which back end a running copy calls is decided in
+[src/lib/api.js](src/lib/api.js). Only the GitHub Pages build talks to Render by
+absolute URL; the Render deploy, `npm run dev` and the portable pack all serve
+their own APIs and call them same-origin, which is what keeps free practice
+working offline in the pack.
 
 ## Running locally
 
@@ -46,10 +64,15 @@ executables outside `Program Files` by policy — so **try the pack on one
 student machine before handing it to a class.** If policy blocks it, the hosted
 URL below is unaffected.
 
+**Rebuild the pack after changing the app** — it ships a copy of the built UI
+and the bundled server, and cannot update itself. Assignments work from the
+pack too (it calls the same worker), but they need a connection; free practice
+does not.
+
 ## Installing it on a Chromebook
 
 Chromebooks can't run the pack (Windows binary, and Linux/Crostini is
-admin-locked), so they use the hosted URL — but the app is now installable:
+admin-locked), so they use the GitHub Pages URL — but the app is now installable:
 open it in Chrome and choose **Install** (address-bar icon, or ⋮ → Cast, save
 and share → Install page as app). That gives a shelf icon and its own window,
 and the shell loads from a service worker ([public/sw.js](public/sw.js)) instead
@@ -59,22 +82,57 @@ The service worker deliberately caches hashed `/assets` forever but always
 revalidates `index.html` and itself, so a redeploy can't leave a student on a
 stale shell pointing at deleted bundles.
 
-## Deploying for students (Render)
+## Assignments
 
-For students who can't install anything locally (no admin rights,
-Chromebooks), deploy this app to Render's free tier — the same server that
-runs locally also serves the built app and the voice APIs once deployed:
+A teacher can turn any passage into homework. On the setup screen, **Set as an
+assignment…** asks for the teacher password and opens a form (title, class, due
+date, replays allowed, attempts, marking rules). Creating it does one slow thing
+once: every sentence is read aloud and stored. Then you get a six-character code
+and a link to share.
 
-1. Push this repo to GitHub.
-2. In the [Render dashboard](https://dashboard.render.com): **New +** →
-   **Blueprint** → pick the repo. Render reads [render.yaml](render.yaml) and
-   pre-fills everything (no manual config).
-3. Share the resulting `https://….onrender.com` URL with students.
+Students open the link, sign in with **the same username and password they use
+for PinPlay**, and type what they hear. `?teacher` on the app URL opens the
+results: who has handed in, their scores, how often each sentence was played,
+and the word-by-word marking of any attempt.
 
-No card is required on Render's free tier. It sleeps after ~15 minutes idle;
-the app pings `/health` on load and shows a "waking up" overlay during the
-~30-60s cold start so it doesn't look broken, and pings periodically while a
-tab stays open and visible to avoid re-sleeping mid-lesson.
+**The passage text never reaches a student's browser until they submit.** The
+worker sends audio by sentence number and withholds the sentences themselves,
+so there is nothing to read in the page source, in storage, or in the network
+tab. Replay limits are counted server-side for the same reason: each play is a
+request, so there is no client-side counter to edit. Marking also happens on the
+worker, under the rules set at creation, so the grading toggles a student can
+use in free practice can't re-mark their own homework.
+
+Setting this up once: [cloudflare/SECRETS.md](cloudflare/SECRETS.md). It reuses
+PinPlay's student roster and teacher password, so there is one roster and one
+password across both apps. Until a worker is configured, the assignment
+features simply stay switched off and free practice is unaffected.
+
+`npm run test:worker` exercises the whole flow — including the checks that the
+text cannot leak early.
+
+## Deploying
+
+Three targets, and a push to `main` handles the first two:
+
+1. **GitHub Pages** — where students open the app.
+   [.github/workflows/deploy-pages.yml](.github/workflows/deploy-pages.yml)
+   builds and publishes on every push. One-time: repo **Settings → Pages →
+   Source = GitHub Actions**.
+2. **Render** — the voices and passage fetching. In the
+   [Render dashboard](https://dashboard.render.com): **New + → Blueprint** →
+   pick the repo; [render.yaml](render.yaml) pre-fills everything. No card
+   needed on the free tier. Setting `ROOT_REDIRECT_URL` there sends anyone
+   opening the Render address itself on to the Pages one, while `/health` and
+   `/api/*` keep answering normally.
+3. **Cloudflare** — assignments. `cd cloudflare && npx wrangler deploy`, then
+   put the worker's URL in `VITE_WORKER_BASE` (or in `src/lib/api.js`).
+
+Render's free tier sleeps after ~15 minutes idle. That now only affects free
+practice and recording an assignment: the app pings `/health` on load and shows
+a "waking up" overlay during the ~30-60s cold start, and keeps pinging while a
+visible tab stays open. A student doing an assignment never touches Render at
+all — their audio comes from R2 — so that path has no cold start.
 
 ## Voices
 

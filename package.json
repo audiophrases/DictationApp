@@ -13,7 +13,8 @@
     "preview": "vite preview",
     "start": "node server/serve.js",
     "icons": "node scripts/make-icons.mjs",
-    "pack:win": "npm run build && node scripts/pack-win.mjs"
+    "pack:win": "npm run build && node scripts/pack-win.mjs",
+    "test:worker": "node cloudflare/worker.test.mjs"
   },
   "dependencies": {
     "diff": "^9.0.0",

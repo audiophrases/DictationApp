@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { ttsBase } from './lib/api';
 
 // How many fetched clips to keep alive at once. A session only needs the current
 // sentence and the next one; the rest of the budget covers replays and clicking
@@ -6,7 +7,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 const MAX_PREFETCHED = 12;
 
 function ttsUrl(text, langCode, rate) {
-  return `/api/tts?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(langCode)}&rate=${encodeURIComponent(rate)}`;
+  return `${ttsBase()}/api/tts?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(langCode)}&rate=${encodeURIComponent(rate)}`;
 }
 
 export function useSpeech() {

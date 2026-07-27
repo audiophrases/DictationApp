@@ -197,6 +197,60 @@ textarea:disabled {
   cursor: not-allowed;
 }
 
+/* Text inputs match the select styling, minus the chevron */
+input[type='text'],
+input[type='password'],
+input[type='date'],
+input:not([type]) {
+  font-family: inherit;
+  font-size: 1rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  background-color: var(--input-bg);
+  color: var(--text-color);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+input:focus {
+  border-color: var(--primary-color);
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+.field-hint {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* The code a student types or a teacher reads out loud. Wide tracking because
+   it gets copied off a whiteboard one character at a time. */
+.assignment-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: 0.25em;
+  margin: 1.25rem 0 0.5rem;
+  color: var(--primary-color);
+}
+
+.assignment-link {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.assignment-link input {
+  font-size: 0.85rem;
+}
+
 /* Header */
 .app-header {
   padding: 2rem;
@@ -273,6 +327,46 @@ textarea:disabled {
 .fetch-error {
   font-size: 0.85rem;
   color: var(--danger-color);
+}
+
+/* Stands in for the passage textarea while a fetched text is hidden, so the
+   student learns how long the exercise is without reading a word of it. */
+.passage-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.btn-small {
+  font-size: 0.85rem;
+  padding: 0.35rem 0.75rem;
+}
+
+.passage-cover {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-height: 200px;
+  padding: 1rem 1.25rem;
+  border: 2px dashed var(--glass-border);
+  border-radius: 12px;
+  background: var(--surface-sunken);
+}
+
+.passage-cover-icon {
+  color: var(--primary-color);
+  flex-shrink: 0;
+}
+
+.passage-cover-title {
+  font-weight: 600;
+}
+
+.passage-cover-sub {
+  font-size: 0.85rem;
+  color: var(--text-muted);
 }
 
 @keyframes spin {
@@ -382,6 +476,89 @@ textarea:disabled {
 
 .source-link:hover {
   background: rgba(59, 130, 246, 0.15);
+}
+
+/* Teacher tables. Wrapped in .table-wrap so a narrow phone scrolls the table
+   sideways instead of the whole page. */
+.table-wrap {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.data-table th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--glass-border);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.data-table td {
+  padding: 0.7rem 0.75rem;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.data-table tbody tr.row-clickable {
+  cursor: pointer;
+}
+
+.data-table tbody tr.row-clickable:hover {
+  background: var(--subtle-fill);
+}
+
+.code-chip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+}
+
+.status-pill {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: var(--subtle-fill);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.status-active {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--success-color);
+}
+
+.status-archived {
+  background: rgba(100, 116, 139, 0.18);
+}
+
+.status-draft {
+  background: rgba(180, 83, 9, 0.15);
+  color: var(--warning-color);
+}
+
+.empty-note {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 2rem 1rem;
+}
+
+.screen-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
 }
 
 /* Dictation progress bar */

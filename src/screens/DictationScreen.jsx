@@ -18,7 +18,9 @@ function DictationScreen({
   isSpeaking,
   warnings,
   rate,
-  onRateChange,
+  onRateChange, // omitted in an assignment: the speed is baked into the audio
+  heading = 'Dictation in Progress',
+  error,
 }) {
   const inputRef = useRef(null);
   const [confirmFinish, setConfirmFinish] = useState(false);
@@ -54,7 +56,7 @@ function DictationScreen({
   return (
     <div className="app-container" style={{ padding: '2rem', maxWidth: '800px', margin: '0 auto' }}>
       <div className="app-header">
-        <h1>Dictation in Progress</h1>
+        <h1>{heading}</h1>
         <p>Sentence {currentIndex + 1} of {sentenceCount}</p>
       </div>
 
@@ -79,25 +81,29 @@ function DictationScreen({
               {replaysLeft} replay{replaysLeft !== 1 ? 's' : ''} left
             </span>
           )}
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-            Speed
-            <select
-              value={rate}
-              onChange={(e) => {
-                // Changing speed only affects future playback — replaying still
-                // goes through Listen Again so the replay limit stays honest.
-                onRateChange(parseFloat(e.target.value));
-                if (inputRef.current) inputRef.current.focus();
-              }}
-              title="Voice speed for the next playback"
-              style={{ padding: '0.45rem 2.2rem 0.45rem 0.75rem', fontSize: '0.9rem' }}
-            >
-              {SPEEDS.map((s) => (
-                <option key={s.value} value={s.value}>{s.name}</option>
-              ))}
-            </select>
-          </label>
+          {onRateChange && (
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+              Speed
+              <select
+                value={rate}
+                onChange={(e) => {
+                  // Changing speed only affects future playback — replaying still
+                  // goes through Listen Again so the replay limit stays honest.
+                  onRateChange(parseFloat(e.target.value));
+                  if (inputRef.current) inputRef.current.focus();
+                }}
+                title="Voice speed for the next playback"
+                style={{ padding: '0.45rem 2.2rem 0.45rem 0.75rem', fontSize: '0.9rem' }}
+              >
+                {SPEEDS.map((s) => (
+                  <option key={s.value} value={s.value}>{s.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
+
+        {error && <div className="fetch-error" style={{ marginBottom: '1rem' }}>{error}</div>}
 
         <textarea
           ref={inputRef}

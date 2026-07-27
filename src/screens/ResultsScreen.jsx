@@ -2,26 +2,18 @@ import { useMemo, useState } from 'react';
 import { CheckCircle, Volume2, RefreshCw, FilePlus2 } from 'lucide-react';
 import { gradeDictation, DEFAULT_GRADING_OPTIONS } from '../lib/grading';
 import SourceCitation from '../components/SourceCitation';
+import DiffText from '../components/DiffText';
+import { accuracyClass } from '../lib/score';
 
-function accuracyClass(accuracy) {
-  if (accuracy >= 0.9) return 'badge-good';
-  if (accuracy >= 0.7) return 'badge-ok';
-  return 'badge-poor';
-}
-
-function DiffText({ segments }) {
-  return (
-    <>
-      {segments.map((seg, i) => (
-        <span key={i} className={seg.type === 'missed' ? 'word-missed' : seg.type === 'extra' ? 'word-extra' : ''}>
-          {seg.words.join(' ')}
-          {i < segments.length - 1 ? ' ' : ''}
-        </span>
-      ))}
-    </>
-  );
-}
-
+/**
+ * The marked-up result of a session.
+ *
+ * Free practice grades here in the browser and lets the student loosen the
+ * grading rules to explore their mistakes. An assignment passes `grade` in
+ * instead — already computed by the worker, under the options the teacher
+ * chose — and hides those toggles, because a score the teacher will read is not
+ * one the student gets to re-mark.
+ */
 function ResultsScreen({
   sentences,
   typedSentences,
@@ -31,12 +23,21 @@ function ResultsScreen({
   onReplaySentence,
   onRetry,
   onNewPassage,
+  grade: providedGrade,
+  heading = 'Dictation Complete',
+  playsLabel = 'Replays used',
+  // Free practice counts replays only; an assignment counts every play, so the
+  // two can't share one wording without one of them being wrong.
+  formatPlays = (n) => `${n} replay${n !== 1 ? 's' : ''}`,
+  note,
+  actions,
 }) {
   const [options, setOptions] = useState(DEFAULT_GRADING_OPTIONS);
-  const grade = useMemo(
-    () => gradeDictation(sentences, typedSentences, options),
-    [sentences, typedSentences, options]
+  const localGrade = useMemo(
+    () => (providedGrade ? null : gradeDictation(sentences, typedSentences, options)),
+    [providedGrade, sentences, typedSentences, options]
   );
+  const grade = providedGrade || localGrade;
 
   const toggle = (key) => setOptions({ ...options, [key]: !options[key] });
   const percent = Math.round(grade.accuracy * 100);
@@ -53,7 +54,7 @@ function ResultsScreen({
       <div className="glass-panel">
         <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
           <CheckCircle size={48} color="var(--success-color)" style={{ margin: '0 auto 0.75rem' }} />
-          <h2 style={{ fontSize: '2rem' }}>Dictation Complete</h2>
+          <h2 style={{ fontSize: '2rem' }}>{heading}</h2>
           <div className={`score-hero ${accuracyClass(grade.accuracy)}`}>{percent}%</div>
           <p style={{ color: 'var(--text-muted)' }}>
             {grade.correct} of {grade.total} words correct
@@ -71,7 +72,7 @@ function ResultsScreen({
           </div>
           <div className="stat-cell">
             <span className="stat-value">{totalReplays}</span>
-            <span className="stat-label">Replays used</span>
+            <span className="stat-label">{playsLabel}</span>
           </div>
           <div className="stat-cell">
             <span className="stat-value" style={warnings > 0 ? { color: 'var(--warning-color)' } : {}}>
@@ -81,17 +82,21 @@ function ResultsScreen({
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center', margin: '1.5rem 0' }}>
-          {toggles.map((t) => (
-            <button
-              key={t.key}
-              className={`chip ${options[t.key] ? 'chip-active' : ''}`}
-              onClick={() => toggle(t.key)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {!providedGrade && (
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center', margin: '1.5rem 0' }}>
+            {toggles.map((t) => (
+              <button
+                key={t.key}
+                className={`chip ${options[t.key] ? 'chip-active' : ''}`}
+                onClick={() => toggle(t.key)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {note && <div style={{ margin: '1.5rem 0' }}>{note}</div>}
 
         <div style={{ display: 'grid', gap: '1rem' }}>
           {grade.sentences.map((s, i) => (
@@ -99,7 +104,7 @@ function ResultsScreen({
               <div className="sentence-card-header">
                 <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                   Sentence {i + 1}
-                  {listenCounts[i] > 0 ? ` · ${listenCounts[i]} replay${listenCounts[i] !== 1 ? 's' : ''}` : ''}
+                  {listenCounts[i] > 0 ? ` · ${formatPlays(listenCounts[i])}` : ''}
                 </span>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                   <span className={`score-badge ${accuracyClass(s.accuracy)}`}>
@@ -107,7 +112,7 @@ function ResultsScreen({
                   </span>
                   <button
                     className="btn-icon"
-                    onClick={() => onReplaySentence(s.original)}
+                    onClick={() => onReplaySentence(s.original, i)}
                     title="Hear this sentence again"
                   >
                     <Volume2 size={16} />
@@ -132,13 +137,17 @@ function ResultsScreen({
           </div>
         )}
 
-        <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-          <button className="btn-primary" onClick={onRetry}>
-            <RefreshCw size={18} /> Try Again
-          </button>
-          <button className="btn-ghost" onClick={onNewPassage}>
-            <FilePlus2 size={18} /> New Passage
-          </button>
+        <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+          {actions || (
+            <>
+              <button className="btn-primary" onClick={onRetry}>
+                <RefreshCw size={18} /> Try Again
+              </button>
+              <button className="btn-ghost" onClick={onNewPassage}>
+                <FilePlus2 size={18} /> New Passage
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

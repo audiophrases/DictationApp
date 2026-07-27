@@ -1,0 +1,19 @@
+name = "dictation-api"
+account_id = "b7cc0719d9ecb3485646785035f87ca1"
+main = "worker.js"
+compatibility_date = "2026-03-04"
+
+# Assignments, attempts and the pre-recorded sentence audio. A bucket of its
+# own, separate from pinplay's: the two apps share a roster and a teacher
+# password, but nothing should make one able to overwrite the other's data.
+[[r2_buckets]]
+binding = "ASSIGN_BUCKET"
+bucket_name = "school-assignments"
+
+# Brute-force budget for the teacher password. Its own namespace_id, so a
+# failed login here never eats into pinplay's allowance (which uses 1001).
+[[unsafe.bindings]]
+name = "AUTH_RL"
+type = "ratelimit"
+namespace_id = "2001"
+simple = { limit = 50, period = 60 }

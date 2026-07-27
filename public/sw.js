@@ -15,21 +15,30 @@
 //
 // Audio from /api/tts is intentionally left alone: it is already cached by the
 // browser (immutable) and prefetched by useSpeech, and mirroring it here would
-// only fill up the student's storage quota.
-const VERSION = 'v1';
+// only fill up the student's storage quota. Since the app moved to GitHub
+// Pages that audio is cross-origin anyway, and cross-origin requests return
+// early below — including everything the assignment worker serves, which must
+// never be cached because replays are counted server-side.
+const VERSION = 'v2';
 const SHELL_CACHE = `dictation-shell-${VERSION}`;
 const ASSET_CACHE = `dictation-assets-${VERSION}`;
+
+// Every path here is relative to where the app is actually mounted: the domain
+// root on Render and in the portable pack, /DictationApp/ on GitHub Pages. The
+// registration scope is the one thing that always knows which, and it is
+// guaranteed to end in a slash.
+const BASE = new URL(self.registration.scope).pathname;
 
 // Enough to boot the app offline; the hashed bundles join ASSET_CACHE as soon as
 // the page has been opened once.
 const SHELL_FILES = [
-  '/',
-  '/index.html',
-  '/manifest.webmanifest',
-  '/favicon.svg',
-  '/icon-192.png',
-  '/icon-512.png',
-  '/icon-maskable-512.png',
+  BASE,
+  `${BASE}index.html`,
+  `${BASE}manifest.webmanifest`,
+  `${BASE}favicon.svg`,
+  `${BASE}icon-192.png`,
+  `${BASE}icon-512.png`,
+  `${BASE}icon-maskable-512.png`,
 ];
 
 self.addEventListener('install', (event) => {
@@ -86,14 +95,14 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
-  if (url.pathname.startsWith('/api/') || url.pathname === '/health') return;
+  if (url.pathname.startsWith(`${BASE}api/`) || url.pathname === `${BASE}health`) return;
 
   if (request.mode === 'navigate') {
-    event.respondWith(networkFirst(request, SHELL_CACHE, '/index.html'));
+    event.respondWith(networkFirst(request, SHELL_CACHE, `${BASE}index.html`));
     return;
   }
 
-  if (url.pathname.startsWith('/assets/')) {
+  if (url.pathname.startsWith(`${BASE}assets/`)) {
     event.respondWith(cacheFirst(request, ASSET_CACHE));
     return;
   }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ttsBase } from './lib/api';
 
 // How long a health check gets before we give up waiting on it. A free-tier
 // host can take ~50s to wake from sleep; the local production server never
@@ -12,7 +13,11 @@ const LOCAL_HEALTH_TIMEOUT_MS = 4000;
 const OVERLAY_DELAY_MS = 600;
 const KEEP_ALIVE_INTERVAL_MS = 10 * 60 * 1000;
 
-function isLocalHost() {
+// Whether the voice server this copy talks to is the one on this machine.
+// ttsBase() is '' for the portable pack, start_local.bat and `vite dev`, and an
+// absolute Render URL once the app is served from GitHub Pages.
+function isLocalServer() {
+  if (ttsBase()) return false;
   const h = window.location.hostname;
   return h === 'localhost' || h === '127.0.0.1';
 }
@@ -21,7 +26,7 @@ async function pingHealth(timeoutMs) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const res = await fetch('/health', { signal: controller.signal });
+    const res = await fetch(`${ttsBase()}/health`, { signal: controller.signal });
     clearTimeout(timer);
     return res.ok;
   } catch {
@@ -44,14 +49,23 @@ async function pingHealth(timeoutMs) {
  * playback should just proceed and fall back rather than hang behind a
  * spinner that would never clear.
  *
+ * Pass `enabled: false` when this session will never ask the voice server for
+ * anything — an assignment plays pre-recorded audio from the worker instead, so
+ * waking Render for it would be pure waste (and its keep-alive pings noise).
+ *
  * Returns { waking, requireServer, dismiss }.
  */
-export function useServerReady() {
-  const [settled, setSettled] = useState(false);
+export function useServerReady({ enabled = true } = {}) {
+  const [settled, setSettled] = useState(!enabled);
   const [audioWanted, setAudioWanted] = useState(false);
-  const settledRef = useRef(false);
+  const settledRef = useRef(!enabled);
 
   useEffect(() => {
+    if (!enabled) {
+      settledRef.current = true;
+      setSettled(true);
+      return undefined;
+    }
     let cancelled = false;
 
     const markSettled = () => {
@@ -60,7 +74,7 @@ export function useServerReady() {
       setSettled(true);
     };
 
-    const timeout = isLocalHost() ? LOCAL_HEALTH_TIMEOUT_MS : REMOTE_HEALTH_TIMEOUT_MS;
+    const timeout = isLocalServer() ? LOCAL_HEALTH_TIMEOUT_MS : REMOTE_HEALTH_TIMEOUT_MS;
     pingHealth(timeout).finally(markSettled);
 
     // Keep a deployed instance from idling back to sleep mid-lesson, and
@@ -68,7 +82,7 @@ export function useServerReady() {
     // they never gate the overlay.
     let keepAliveId = null;
     let onVisible = null;
-    if (!isLocalHost()) {
+    if (!isLocalServer()) {
       keepAliveId = setInterval(() => {
         if (document.visibilityState === 'visible') pingHealth(5000);
       }, KEEP_ALIVE_INTERVAL_MS);
@@ -83,7 +97,7 @@ export function useServerReady() {
       if (keepAliveId) clearInterval(keepAliveId);
       if (onVisible) document.removeEventListener('visibilitychange', onVisible);
     };
-  }, []);
+  }, [enabled]);
 
   // Called right before playback. Only flags that someone is waiting; if the
   // check already settled this is a no-op and no overlay ever appears.

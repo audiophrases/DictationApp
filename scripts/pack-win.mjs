@@ -87,6 +87,9 @@ you need a connection to use them. Everything else - typing, marking, your
 results - works on your own computer. Sentences you have already heard are
 remembered, so repeating a lesson works even with a poor connection.
 
+Assignments set by your teacher also need a connection, because signing in
+and handing your work in both happen online. Practising on your own does not.
+
 IF THE BROWSER DOES NOT OPEN
 ----------------------------
 Open it yourself and go to:  http://127.0.0.1:${PORT}

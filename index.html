@@ -2,13 +2,16 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- Relative, not root-absolute: the same build is served from the root on
+         Render and in the portable pack, but from /DictationApp/ on GitHub
+         Pages, where a leading slash would point at the wrong repo. -->
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Dictation Time</title>
     <!-- Installable app: gives students on Chromebooks a shelf icon and its own
          window, which is as close to "installing" as a managed Chromebook gets. -->
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icon-192.png" />
     <meta name="theme-color" content="#2563eb" />
     <script>
       // Set the theme before first paint so there's no flash of the wrong

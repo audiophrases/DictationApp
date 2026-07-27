@@ -2,13 +2,16 @@
 // /api/tts and /api/dictation handlers Vite uses in dev. This is what runs
 // both for the local production launcher (start_local.bat) and on Render —
 // one server, two homes, so the neural voices work identically in both.
+//
+// Since the student-facing app moved to GitHub Pages, the Render copy is
+// mainly a voice service. It still serves the whole app (that's what the
+// portable pack needs), but a deploy can set ROOT_REDIRECT_URL to send stale
+// bookmarks on to the Pages address — see the redirect below.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { handleTTSRequest } from './tts.js';
-import { handleDictationRequest } from './dictation.js';
-import { cacheStats } from './ttsCache.js';
+import { handleAppRequest } from './routes.js';
 
 const PORT = Number(process.env.PORT) || 4173;
 // All interfaces by default, because that is the only default that cannot break
@@ -23,6 +26,13 @@ const PORT = Number(process.env.PORT) || 4173;
 // firewall rule, which is visible and recoverable, whereas a host that doesn't
 // pass HOST fails its health check with nothing obviously wrong.
 const HOST = process.env.HOST || '0.0.0.0';
+// Optional. When set, a browser asking this server for the page itself is sent
+// to the app's real home instead. Only bare navigations to "/" are redirected:
+// /health, /api/* and the hashed assets must keep answering normally, because
+// the Pages copy of the app calls straight back into this server for audio.
+// Unset by default, so a plain deploy (and the portable pack) still serves the
+// app from here.
+const ROOT_REDIRECT_URL = process.env.ROOT_REDIRECT_URL || '';
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.join(SERVER_DIR, '..');
 // Normally the sibling dist/ of this repo. The Windows portable pack overrides it
@@ -108,18 +118,11 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://localhost:${PORT}`);
 
-    if (url.pathname === '/health') {
-      sendJson(res, 200, { ok: true, service: 'dictationapp', ttsCache: cacheStats() });
-      return;
-    }
+    if (await handleAppRequest(req, res)) return;
 
-    if (url.pathname === '/api/tts') {
-      await handleTTSRequest(req, res);
-      return;
-    }
-
-    if (url.pathname === '/api/dictation') {
-      await handleDictationRequest(req, res);
+    if (ROOT_REDIRECT_URL && (url.pathname === '/' || url.pathname === '/index.html')) {
+      res.writeHead(302, { Location: ROOT_REDIRECT_URL, 'Cache-Control': 'no-store' });
+      res.end();
       return;
     }
 

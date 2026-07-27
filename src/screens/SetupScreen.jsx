@@ -1,34 +1,8 @@
-import { Play, Sparkles, Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Play, Sparkles, Loader2, EyeOff, Eye, BookOpen, ClipboardList } from 'lucide-react';
 import { splitIntoSentences, countWords } from '../lib/sentences';
-import { SPEEDS } from '../lib/options';
+import { SPEEDS, LANGUAGES, FETCH_SUPPORTED, REPLAY_LIMITS, languageName } from '../lib/options';
 import SourceCitation from '../components/SourceCitation';
-
-// Wikipedia editions are only available for languages we can map server-side.
-const FETCH_SUPPORTED = new Set([
-  'en-US', 'ca-ES', 'fr-FR', 'es-ES', 'de-DE', 'it-IT', 'pt-PT',
-  'ar-MA', 'ru-RU', 'uk-UA', 'ro-RO',
-]);
-
-const LANGUAGES = [
-  { code: 'ca-ES', name: 'Catalan' },
-  { code: 'en-US', name: 'English' },
-  { code: 'fr-FR', name: 'French' },
-  { code: 'de-DE', name: 'German' },
-  { code: 'it-IT', name: 'Italian' },
-  { code: 'ar-MA', name: 'Moroccan Darija' },
-  { code: 'pt-PT', name: 'Portuguese' },
-  { code: 'ro-RO', name: 'Romanian' },
-  { code: 'ru-RU', name: 'Russian' },
-  { code: 'es-ES', name: 'Spanish' },
-  { code: 'uk-UA', name: 'Ukrainian' },
-];
-
-const REPLAY_LIMITS = [
-  { value: 0, name: 'Unlimited replays' },
-  { value: 1, name: '1 replay per sentence' },
-  { value: 2, name: '2 replays per sentence' },
-  { value: 3, name: '3 replays per sentence' },
-];
 
 function SetupScreen({
   passage,
@@ -39,11 +13,22 @@ function SetupScreen({
   onFetchPassage,
   fetchState,
   passageSource,
+  onAssign,
 }) {
   const sentenceCount = splitIntoSentences(passage).length;
   const wordCount = countWords(passage);
   const canFetch = FETCH_SUPPORTED.has(settings.lang);
-  const langName = LANGUAGES.find((l) => l.code === settings.lang)?.name || 'this language';
+  const langName = languageName(settings.lang);
+
+  // A fetched passage is text the student has not seen, so reading it here would
+  // give the whole exercise away. Hand-typed text is exempt: they wrote it.
+  // The reveal is for the person setting the exercise up, and resets with every
+  // new fetch so it can't stay on by accident.
+  const [revealed, setRevealed] = useState(false);
+  useEffect(() => {
+    setRevealed(false);
+  }, [passageSource?.text]);
+  const hidden = !!passageSource && !revealed;
 
   const updateSetting = (key, value) => setSettings({ ...settings, [key]: value });
 
@@ -133,19 +118,43 @@ function SetupScreen({
           </div>
 
           <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Passage to Dictate</label>
-            <textarea
-              value={passage}
-              onChange={(e) => setPassage(e.target.value)}
-              placeholder="Paste your own text, or use “Fetch a passage” above..."
-              style={{ minHeight: '200px' }}
-            />
-            {passage.trim() && (
-              <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                {sentenceCount} sentence{sentenceCount !== 1 ? 's' : ''} · {wordCount} word{wordCount !== 1 ? 's' : ''}
-              </p>
+            <div className="passage-label-row">
+              <label style={{ fontWeight: 500 }}>Passage to Dictate</label>
+              {passageSource && (
+                <button className="btn-ghost btn-small" onClick={() => setRevealed((r) => !r)}>
+                  {revealed ? <><EyeOff size={15} /> Hide text</> : <><Eye size={15} /> Show text</>}
+                </button>
+              )}
+            </div>
+
+            {hidden ? (
+              <div className="passage-cover">
+                <BookOpen size={20} className="passage-cover-icon" />
+                <div>
+                  <div className="passage-cover-title">
+                    Passage ready — {sentenceCount} sentence{sentenceCount !== 1 ? 's' : ''}
+                  </div>
+                  <div className="passage-cover-sub">
+                    From {passageSource.source}. Hidden so you hear it before you read it.
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <textarea
+                  value={passage}
+                  onChange={(e) => setPassage(e.target.value)}
+                  placeholder="Paste your own text, or use “Fetch a passage” above..."
+                  style={{ minHeight: '200px' }}
+                />
+                {passage.trim() && (
+                  <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    {sentenceCount} sentence{sentenceCount !== 1 ? 's' : ''} · {wordCount} word{wordCount !== 1 ? 's' : ''}
+                  </p>
+                )}
+                <SourceCitation source={passageSource} />
+              </>
             )}
-            <SourceCitation source={passageSource} />
           </div>
 
           <button
@@ -156,6 +165,18 @@ function SetupScreen({
           >
             <Play size={24} /> Start Dictation Session
           </button>
+
+          {onAssign && (
+            <button
+              className="btn-ghost"
+              style={{ width: '100%' }}
+              onClick={onAssign}
+              disabled={!passage.trim()}
+              title="Set this passage as homework for your class"
+            >
+              <ClipboardList size={18} /> Set as an assignment…
+            </button>
+          )}
         </div>
       </div>
     </div>

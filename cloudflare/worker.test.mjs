@@ -95,6 +95,7 @@ const created = await call('/api/teacher/assignments/create', {
     feedbackMode: 'end',
     lang: 'en-US',
     rate: 1,
+    source: { title: 'Volcano', url: 'https://simple.wikipedia.org/wiki/Volcano' },
   },
 });
 const code = created.payload.code;
@@ -138,6 +139,11 @@ check('assignment published', published.status === 200);
 const meta = await call(`/api/assignments/${code}/meta`);
 check('meta available once published', meta.status === 200);
 check('meta hides the sentences', !JSON.stringify(meta.payload).includes('volcano'),
+  JSON.stringify(meta.payload));
+// The citation names the article the passage came from. Handing that over
+// before the student has typed a word would let them go and read it.
+check('meta hides where the passage came from',
+  !JSON.stringify(meta.payload).toLowerCase().includes('wikipedia'),
   JSON.stringify(meta.payload));
 check('meta reports the sentence count', meta.payload.meta.sentenceCount === 3);
 
@@ -197,12 +203,99 @@ const secondAttempt = await call(`/api/assignments/${code}/start`, {
 });
 check('attempts limit enforced', secondAttempt.status === 403, secondAttempt.payload.error);
 
+// ------------------------------------------------------------- ipa flavor
+// Reading aloud: text goes TO the student after sign-in, scores come FROM the
+// browser's recognizer, and there is no audio or draft step at all.
+const ipaCreated = await call('/api/teacher/assignments/create', {
+  method: 'POST',
+  body: {
+    password: PASSWORD,
+    app: 'ipa',
+    title: 'A1 introductions',
+    className: '1ESO',
+    sentences: ['Hi, my name is Marc.', 'I am from Barcelona.', '  ', 'Nice to meet you.'],
+    lang: 'en',
+    accuracyIndex: 2,
+    attemptsLimit: 1,
+    feedbackMode: 'end',
+    source: { lessonId: 'en_a1_introductions' },
+  },
+});
+const ipaCode = ipaCreated.payload.code;
+check('ipa assignment created', ipaCreated.status === 200 && !!ipaCode, `code=${ipaCode}`);
+check('ipa keeps the given sentences (blank lines dropped)',
+  ipaCreated.payload.sentences?.length === 3, JSON.stringify(ipaCreated.payload.sentences));
+check('ipa assignment is born active', ipaCreated.payload.record?.status === 'active');
+
+const ipaMeta = await call(`/api/assignments/${ipaCode}/meta`);
+check('ipa meta visible without publishing', ipaMeta.status === 200);
+check('ipa meta pins the accuracy level', ipaMeta.payload.meta?.accuracyIndex === 2);
+// The reading app needs the lesson id to fetch that lesson's per-word data
+// (Darija is scored against its transcriptions, not its Arabic script).
+check('ipa meta names the source lesson',
+  ipaMeta.payload.meta?.source?.lessonId === 'en_a1_introductions');
+
+const ipaStart = await call(`/api/assignments/${ipaCode}/start`, {
+  method: 'POST', body: { username: 'testkid', password: 'kidpw' },
+});
+const ipaAttemptId = ipaStart.payload.attemptId;
+check('ipa start hands over the sentences', ipaStart.status === 200 &&
+  ipaStart.payload.sentences?.[0] === 'Hi, my name is Marc.', JSON.stringify(ipaStart.payload.sentences));
+
+// Best-reading semantics: a worse later take must not lower the mark or
+// replace the transcript that earned it.
+await call(`/api/assignments/${ipaCode}/answer`, {
+  method: 'POST', body: { attemptId: ipaAttemptId, index: 0, score: 80, text: 'hi my name is marc' },
+});
+await call(`/api/assignments/${ipaCode}/answer`, {
+  method: 'POST', body: { attemptId: ipaAttemptId, index: 0, score: 40, text: 'hi marc' },
+});
+const ipaResume = await call(`/api/assignments/${ipaCode}/start`, {
+  method: 'POST', body: { username: 'testkid', password: 'kidpw' },
+});
+check('ipa resume keeps the best score', ipaResume.payload.scores?.[0] === 80,
+  JSON.stringify(ipaResume.payload.scores));
+check('ipa resume keeps the transcript that earned it',
+  ipaResume.payload.answers?.[0] === 'hi my name is marc');
+
+// Submit re-sends everything; sentence 2 was never read and counts zero.
+const ipaSubmit = await call(`/api/assignments/${ipaCode}/submit`, {
+  method: 'POST',
+  body: {
+    attemptId: ipaAttemptId,
+    scores: [60, 100, null],
+    answers: ['hi marc again', 'i am from barcelona', ''],
+  },
+});
+check('ipa submitted', ipaSubmit.status === 200);
+check('ipa submit cannot lower a banked score', ipaSubmit.payload.scores?.[0] === 80);
+check('ipa overall is the average, unread = 0',
+  ipaSubmit.payload.scorePercent === Math.round((80 + 100 + 0) / 3),
+  `score=${ipaSubmit.payload.scorePercent}%`);
+
+const ipaDetail = await call('/api/teacher/attempts/get', {
+  method: 'POST',
+  body: { password: PASSWORD, code: ipaCode, studentKey: 'usr_testkid@override.local', attemptId: ipaAttemptId },
+});
+check('teacher sees per-sentence reading results',
+  ipaDetail.payload.results?.perSentence?.[1]?.score === 100 &&
+  ipaDetail.payload.results?.perSentence?.[1]?.transcript === 'i am from barcelona',
+  JSON.stringify(ipaDetail.payload.results?.perSentence));
+
 // ---------------------------------------------------------------- dashboard
 const list = await call('/api/teacher/assignments/list', {
   method: 'POST', body: { password: PASSWORD },
 });
 check('assignment appears in the dashboard', list.payload.assignments?.[0]?.code === code);
 check('dashboard shows the class', list.payload.assignments?.[0]?.className === '2ESO');
+check('dictation dashboard does not show ipa assignments',
+  !list.payload.assignments?.some((a) => a.code === ipaCode));
+
+const ipaList = await call('/api/teacher/assignments/list', {
+  method: 'POST', body: { password: PASSWORD, app: 'ipa' },
+});
+check('ipa dashboard lists only ipa assignments',
+  ipaList.payload.assignments?.length === 1 && ipaList.payload.assignments[0].code === ipaCode);
 
 const detail = await call('/api/teacher/assignments/get', {
   method: 'POST', body: { password: PASSWORD, code },
@@ -234,6 +327,9 @@ const del = await call('/api/teacher/assignments/delete', {
   method: 'POST', body: { password: PASSWORD, code },
 });
 check('assignment deleted', del.status === 200);
+await call('/api/teacher/assignments/delete', {
+  method: 'POST', body: { password: PASSWORD, code: ipaCode },
+});
 check('nothing left in storage', env.ASSIGN_BUCKET._objects.size === 0,
   `${env.ASSIGN_BUCKET._objects.size} objects remain`);
 

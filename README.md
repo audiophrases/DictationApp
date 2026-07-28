@@ -169,6 +169,29 @@ features simply stay switched off and free practice is unaffected.
 `npm run test:worker` exercises the whole flow — including the checks that the
 text cannot leak early.
 
+### The worker also serves Speech to IPA
+
+[Speech to IPA](https://github.com/audiophrases/speechtoipa) sets reading-aloud
+assignments through the same worker, as `app: 'ipa'`. One roster, one teacher
+password, one bucket; each dashboard lists only its own app's assignments.
+
+The two flavors differ in what they can hide and who does the marking, and
+[cloudflare/worker.js](cloudflare/worker.js) branches on `record.app`
+accordingly:
+
+| | Dictation | Reading aloud (ipa) |
+| --- | --- | --- |
+| The text | Withheld until submit — that's the test | Sent at sign-in — reading it *is* the test |
+| Audio | One clip per sentence in R2, replays metered | None; the student speaks |
+| Marking | On the worker, from the stored text | In the browser, by the speech recognizer |
+| After creating | `draft` until every clip is uploaded | `active` at once — nothing to upload |
+
+Because a spoken sentence can only be judged by the recognizer, ipa scores are
+reported by the client. The worker's guarantee is narrower but still worth
+having: a mark can only go **up**, so a later, worse reading can never undo a
+student's best one, and the transcript stored alongside a score is always the
+one that earned it.
+
 ## Deploying
 
 Three targets, and a push to `main` handles the first two:

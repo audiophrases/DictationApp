@@ -1,4 +1,4 @@
-// Assignments API for Dictation Time (and, later, Speech to IPA).
+// Assignments API for Dictation Time and Speech to IPA.
 //
 // Why a Worker rather than the Node server the app already has: this is the
 // only piece students touch that must answer instantly. The Render server
@@ -22,6 +22,14 @@
 // not be able to read the sentences before typing them, so `sentences` is
 // never included in any student-facing response until the attempt is
 // submitted; students receive audio by index instead.
+//
+// That guard applies to the 'dictation' flavor only. The 'ipa' flavor
+// (Speech to IPA) is reading aloud: the text IS the task, so it goes to the
+// student the moment they sign in, there is no audio to store, and — because
+// the browser's speech recognizer is the only judge of what was said — the
+// per-sentence scores are reported by the client rather than graded here.
+// An ipa assignment is therefore born 'active': no clips to upload means no
+// draft/publish step.
 import { gradeDictation, DEFAULT_GRADING_OPTIONS } from '../src/lib/grading.js';
 import { splitIntoSentences } from '../src/lib/sentences.js';
 
@@ -40,6 +48,9 @@ const MAX_AUDIO_BYTES = 5 * 1024 * 1024;
 const MAX_SENTENCES = 60;
 const MAX_PASSAGE_CHARS = 20000;
 const MAX_ANSWER_CHARS = 2000;
+// ipa sentences arrive pre-split (one lesson line each); 500 matches the TTS
+// server's own per-request text limit, so nothing storable is unspeakable.
+const MAX_IPA_SENTENCE_CHARS = 500;
 
 // ---------------------------------------------------------------- responses
 
@@ -296,11 +307,23 @@ async function nextCode(env) {
 // ------------------------------------------------------------ teacher routes
 
 async function createAssignment(env, body) {
-  const passage = sanitizeText(body.text, MAX_PASSAGE_CHARS);
-  // Split here, not in the browser: this list is what the audio is recorded
-  // against and what the answers are graded against, so exactly one component
-  // gets to decide where the sentences end.
-  const sentences = splitIntoSentences(passage);
+  const app = body.app === 'ipa' ? 'ipa' : 'dictation';
+
+  let sentences;
+  if (app === 'ipa') {
+    // Reading sentences arrive as a list, one per line of the lesson — the
+    // teacher page already shows exactly what each item will be, so re-splitting
+    // them here would only second-guess a human's line breaks.
+    sentences = (Array.isArray(body.sentences) ? body.sentences : [])
+      .map((s) => sanitizeText(s, MAX_IPA_SENTENCE_CHARS).replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+  } else {
+    const passage = sanitizeText(body.text, MAX_PASSAGE_CHARS);
+    // Split here, not in the browser: this list is what the audio is recorded
+    // against and what the answers are graded against, so exactly one component
+    // gets to decide where the sentences end.
+    sentences = splitIntoSentences(passage);
+  }
   if (sentences.length === 0) return fail('The passage is empty.');
   if (sentences.length > MAX_SENTENCES) {
     return fail(`That passage is ${sentences.length} sentences; the limit is ${MAX_SENTENCES}.`);
@@ -310,25 +333,38 @@ async function createAssignment(env, body) {
   const dueAt = Number(body.dueAt || 0) > 0 ? Math.round(Number(body.dueAt)) : null;
   const record = {
     code: await nextCode(env),
-    app: body.app === 'ipa' ? 'ipa' : 'dictation',
-    status: 'draft',
-    title: sanitizeName(body.title) || 'Dictation',
+    app,
+    // No audio to upload means nothing to publish: an ipa assignment is usable
+    // the moment it exists.
+    status: app === 'ipa' ? 'active' : 'draft',
+    title: sanitizeName(body.title) || (app === 'ipa' ? 'Reading practice' : 'Dictation'),
     className: sanitizeName(body.className),
     createdAt: now,
     updatedAt: now,
     dueAt,
     attemptsLimit: clamp(body.attemptsLimit ?? 1, 0, 10),
-    maxListens: clamp(body.maxListens ?? 0, 0, 9),
+    maxListens: app === 'ipa' ? 0 : clamp(body.maxListens ?? 0, 0, 9),
     feedbackMode: body.feedbackMode === 'none' ? 'none' : 'end',
-    settings: {
-      lang: String(body.lang || 'en-US').slice(0, 12),
-      rate: Math.min(1.5, Math.max(0.5, Number(body.rate) || 1)),
-    },
-    grading: {
-      ignoreCase: !!body.grading?.ignoreCase,
-      ignorePunctuation: !!body.grading?.ignorePunctuation,
-      ignoreAccents: !!body.grading?.ignoreAccents,
-    },
+    settings:
+      app === 'ipa'
+        ? {
+            lang: String(body.lang || 'en').slice(0, 12),
+            // The accuracy slider the app normally lets the learner move; the
+            // assignment pins it so the whole class is judged at one strictness.
+            accuracyIndex: clamp(body.accuracyIndex ?? 0, 0, 5),
+          }
+        : {
+            lang: String(body.lang || 'en-US').slice(0, 12),
+            rate: Math.min(1.5, Math.max(0.5, Number(body.rate) || 1)),
+          },
+    grading:
+      app === 'ipa'
+        ? null
+        : {
+            ignoreCase: !!body.grading?.ignoreCase,
+            ignorePunctuation: !!body.grading?.ignorePunctuation,
+            ignoreAccents: !!body.grading?.ignoreAccents,
+          },
     source: body.source && typeof body.source === 'object' ? body.source : null,
     sentences,
     sentenceCount: sentences.length,
@@ -349,6 +385,8 @@ function publicRecord(record) {
 async function publishAssignment(env, code) {
   const record = await getJson(env.ASSIGN_BUCKET, recordKey(code));
   if (!record) return fail('Assignment not found.', 404);
+  // ipa assignments are born active; there is nothing to publish.
+  if (record.app === 'ipa') return json({ ok: true, code, record: publicRecord(record) });
 
   // Every sentence must have a clip before students can start: a missing one
   // would strand them on a sentence they can neither hear nor skip.
@@ -436,8 +474,10 @@ async function attemptDetail(env, code, studentKey, attemptId) {
 
   // Regrade on read rather than trusting what was stored: an attempt abandoned
   // mid-way has no stored results at all, and the teacher still needs to see
-  // how far it got.
-  const results = attempt.results || gradeResults(record, attempt);
+  // how far it got. (ipa results are always rebuilt from the banked scores —
+  // there is nothing to regrade.)
+  const results =
+    record.app === 'ipa' ? ipaResults(record, attempt) : attempt.results || gradeResults(record, attempt);
   return json({ attempt, results, sentences: record.sentences });
 }
 
@@ -469,6 +509,27 @@ function gradeResults(record, attempt) {
   );
 }
 
+// ipa marks come from the browser's recognizer — there is nothing here to
+// regrade against — so the overall mark is simply the average across every
+// sentence, unread ones counting zero.
+function ipaScorePercent(record, attempt) {
+  let sum = 0;
+  for (let i = 0; i < record.sentenceCount; i += 1) sum += Number(attempt.scores?.[i] || 0);
+  return Math.round(sum / (record.sentenceCount || 1));
+}
+
+// What the teacher's attempt view renders for an ipa attempt: each sentence's
+// best score next to the words the recognizer heard earn it.
+function ipaResults(record, attempt) {
+  return {
+    scorePercent: attempt.scorePercent ?? ipaScorePercent(record, attempt),
+    perSentence: record.sentences.map((_, i) => ({
+      score: attempt.scores?.[i] ?? null,
+      transcript: attempt.answers?.[i] ?? '',
+    })),
+  };
+}
+
 // The first sentence with no answer yet. The flow is strictly sequential, so
 // this is where a resumed attempt picks up.
 function nextIndex(attempt, count) {
@@ -491,7 +552,38 @@ function studentMeta(record) {
     feedbackMode: record.feedbackMode,
     dueAt: record.dueAt,
     lang: record.settings.lang,
+    // ipa only: the pinned strictness level; undefined for dictation, which
+    // JSON.stringify simply drops.
+    accuracyIndex: record.settings.accuracyIndex,
+    // ipa ONLY. It carries the lesson id, so the reading app can fetch that
+    // lesson's per-word data (translations, and the transcriptions Darija is
+    // scored against) from the public sheet.
+    //
+    // It must never be sent for a dictation, where `source` is the citation of
+    // the fetched passage: handing a student the article title before they have
+    // typed a word would let them go and read the very text they are being
+    // tested on. The results screen is where that belongs.
+    source: record.app === 'ipa' ? record.source : undefined,
   };
+}
+
+// Everything a student needs to begin (or carry on with) an attempt. For the
+// ipa flavor this includes the sentences themselves — reading aloud cannot
+// hide its text — and the per-sentence scores already banked, so a resumed
+// attempt shows the same progress the student last saw.
+function startResponse(record, attempt, resumed) {
+  return json({
+    attemptId: attempt.id,
+    resumed,
+    nextIndex: nextIndex(attempt, record.sentenceCount),
+    answers: answersArray(attempt, record.sentenceCount),
+    listens: attempt.listens || {},
+    warnings: attempt.warnings || 0,
+    meta: studentMeta(record),
+    ...(record.app === 'ipa'
+      ? { sentences: record.sentences, scores: attempt.scores || {} }
+      : null),
+  });
 }
 
 async function startAttempt(env, code, body) {
@@ -514,17 +606,7 @@ async function startAttempt(env, code, body) {
   const open = existing.find((o) => (o.customMetadata || {}).sub !== '1');
   if (open) {
     const attempt = await getJson(env.ASSIGN_BUCKET, open.key);
-    if (attempt) {
-      return json({
-        attemptId: attempt.id,
-        resumed: true,
-        nextIndex: nextIndex(attempt, record.sentenceCount),
-        answers: answersArray(attempt, record.sentenceCount),
-        listens: attempt.listens || {},
-        warnings: attempt.warnings || 0,
-        meta: studentMeta(record),
-      });
-    }
+    if (attempt) return startResponse(record, attempt, true);
   }
 
   if (record.attemptsLimit > 0 && existing.length >= record.attemptsLimit) {
@@ -545,6 +627,7 @@ async function startAttempt(env, code, body) {
     submitted: false,
     submittedAt: null,
     answers: {},
+    scores: {},
     listens: {},
     warnings: 0,
     results: null,
@@ -552,15 +635,7 @@ async function startAttempt(env, code, body) {
   };
   await saveAttempt(env, attempt);
 
-  return json({
-    attemptId: attempt.id,
-    resumed: false,
-    nextIndex: 0,
-    answers: answersArray(attempt, record.sentenceCount),
-    listens: {},
-    warnings: 0,
-    meta: studentMeta(record),
-  });
+  return startResponse(record, attempt, false);
 }
 
 /**
@@ -629,6 +704,21 @@ async function saveAnswer(env, code, body) {
   const index = parseIndex(body.index, record.sentenceCount);
   if (index < 0) return fail('No such sentence.', 404);
 
+  if (record.app === 'ipa') {
+    // The answer is what the recognizer heard, and it travels with the score
+    // the app computed from it. A sentence's mark is the student's BEST
+    // reading, so a later, worse take changes nothing — score and transcript
+    // are kept together precisely so the teacher always reads the words that
+    // earned the mark.
+    const score = clamp(body.score ?? 0, 0, 100);
+    if (score >= Number(attempt.scores?.[index] ?? -1)) {
+      attempt.scores = { ...attempt.scores, [index]: score };
+      attempt.answers = { ...attempt.answers, [index]: sanitizeText(body.text, MAX_ANSWER_CHARS) };
+      await saveAttempt(env, attempt);
+    }
+    return json({ ok: true });
+  }
+
   attempt.answers = { ...attempt.answers, [index]: sanitizeText(body.text, MAX_ANSWER_CHARS) };
   await saveAttempt(env, attempt);
   return json({ ok: true });
@@ -652,23 +742,44 @@ async function submitAttempt(env, code, body) {
   if (!record) return fail('Assignment not found.', 404);
 
   if (!attempt.submitted) {
-    // The client sends every answer again here, not just the last one. The
-    // per-sentence saves are crash insurance; this is the authoritative copy,
-    // so a dropped mid-session request can never cost a student marks.
-    if (Array.isArray(body.answers)) {
-      const answers = {};
-      body.answers.slice(0, record.sentenceCount).forEach((text, i) => {
-        if (typeof text === 'string') answers[i] = sanitizeText(text, MAX_ANSWER_CHARS);
-      });
-      attempt.answers = { ...attempt.answers, ...answers };
-    }
+    if (record.app === 'ipa') {
+      // The client re-sends every sentence's best score and transcript here,
+      // same crash-insurance reasoning as the dictation answers below — but
+      // stored marks still win, so a submit-time payload can never talk a
+      // score DOWN from what a per-sentence report already banked.
+      if (Array.isArray(body.scores)) {
+        body.scores.slice(0, record.sentenceCount).forEach((score, i) => {
+          if (score === null || score === undefined) return;
+          const next = clamp(score, 0, 100);
+          if (next >= Number(attempt.scores?.[i] ?? -1)) {
+            attempt.scores = { ...attempt.scores, [i]: next };
+            const text = Array.isArray(body.answers) ? body.answers[i] : undefined;
+            if (typeof text === 'string') {
+              attempt.answers = { ...attempt.answers, [i]: sanitizeText(text, MAX_ANSWER_CHARS) };
+            }
+          }
+        });
+      }
+      attempt.scorePercent = ipaScorePercent(record, attempt);
+    } else {
+      // The client sends every answer again here, not just the last one. The
+      // per-sentence saves are crash insurance; this is the authoritative copy,
+      // so a dropped mid-session request can never cost a student marks.
+      if (Array.isArray(body.answers)) {
+        const answers = {};
+        body.answers.slice(0, record.sentenceCount).forEach((text, i) => {
+          if (typeof text === 'string') answers[i] = sanitizeText(text, MAX_ANSWER_CHARS);
+        });
+        attempt.answers = { ...attempt.answers, ...answers };
+      }
 
-    // Graded on the server so the score is the same number for the student and
-    // the teacher, and so the grading options a student can toggle in free
-    // practice can't be used to re-mark their own homework.
-    const results = gradeResults(record, attempt);
-    attempt.results = results;
-    attempt.scorePercent = Math.round(results.accuracy * 100);
+      // Graded on the server so the score is the same number for the student and
+      // the teacher, and so the grading options a student can toggle in free
+      // practice can't be used to re-mark their own homework.
+      const results = gradeResults(record, attempt);
+      attempt.results = results;
+      attempt.scorePercent = Math.round(results.accuracy * 100);
+    }
     attempt.submitted = true;
     attempt.submittedAt = Date.now();
     await saveAttempt(env, attempt);
@@ -682,6 +793,7 @@ async function submitAttempt(env, code, body) {
     feedbackMode: 'end',
     results: attempt.results,
     scorePercent: attempt.scorePercent,
+    scores: record.app === 'ipa' ? attempt.scores || {} : undefined,
     listens: attempt.listens || {},
     warnings: attempt.warnings || 0,
   });
@@ -699,6 +811,7 @@ async function attemptResults(env, code, attemptId) {
   return json({
     results: attempt.results,
     scorePercent: attempt.scorePercent,
+    scores: record.app === 'ipa' ? attempt.scores || {} : undefined,
     listens: attempt.listens || {},
     warnings: attempt.warnings || 0,
   });

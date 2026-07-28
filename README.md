@@ -84,16 +84,25 @@ stale shell pointing at deleted bundles.
 
 ## Assignments
 
-A teacher can turn any passage into homework. On the setup screen, **Set as an
-assignment…** asks for the teacher password and opens a form (title, class, due
-date, replays allowed, attempts, marking rules). Creating it does one slow thing
-once: every sentence is read aloud and stored. Then you get a six-character code
+The teacher's side is its own page at **`/create/`** — the same shape pinplay
+uses. Sign in there with the teacher password to build assignments and read
+results: who has handed in, their scores, how often each sentence was played,
+and the word-by-word marking of any attempt. (`?teacher`, where this used to
+live, redirects there.)
+
+Creating one: **New assignment**, or **Set as an assignment…** on the practice
+screen, which carries the passage across. Fill in the form (title, class, due
+date, replays allowed, attempts, marking rules) and it does one slow thing once
+— reads every sentence aloud and stores it. Then you get a six-character code
 and a link to share.
 
-Students open the link, sign in with **the same username and password they use
-for PinPlay**, and type what they hear. `?teacher` on the app URL opens the
-results: who has handed in, their scores, how often each sentence was played,
-and the word-by-word marking of any attempt.
+Students open that link and sign in with **the same username and password they
+use for PinPlay**, then type what they hear.
+
+Two pages rather than one app with a route, because a static host has no
+rewrites and because they share almost nothing: a Chromebook opening the
+student app downloads none of the dashboard, the builder, or anything else
+behind the password.
 
 A student who can't get in has the same two doors as in PinPlay, linked under
 the sign-in box: **Sign up** (the Google Form that feeds your roster sheet) and

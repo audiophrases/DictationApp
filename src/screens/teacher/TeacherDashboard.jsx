@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, Copy, Loader2, Plus, RefreshCw, Trash2, Archive, ArchiveRestore } from 'lucide-react';
 import { deleteAssignment, listAssignments, setAssignmentStatus } from '../../lib/assignmentApi';
+import { studentLink } from '../../lib/appLinks';
 
 function formatDate(ms) {
   if (!ms) return '—';
@@ -46,8 +47,7 @@ function TeacherDashboard({ onCreate, onOpen, onExit }) {
   }
 
   function copyLink(code) {
-    const link = `${window.location.origin}${window.location.pathname}?a=${code}`;
-    navigator.clipboard?.writeText(link);
+    navigator.clipboard?.writeText(studentLink(code));
   }
 
   return (

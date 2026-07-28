@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { resolve } from 'node:path'
 import { handleAppRequest } from './server/routes.js'
 
 // One catch-all instead of a middleware per endpoint: the route table lives in
@@ -30,6 +31,19 @@ export default defineConfig({
   // on Render and in the portable pack, /DictationApp/ on GitHub Pages. The app
   // has no path-based routes (only ?a=CODE), so nothing else needs rewriting.
   base: './',
+  build: {
+    // Two pages, not one app with a route: the student app at the root and the
+    // teacher's at create/. A static host has no rewrites, so /create/ has to
+    // be a real directory with a real index.html — and keeping them separate
+    // means a Chromebook loading the student app never downloads the
+    // dashboard, the assignment builder or anything behind the password.
+    rollupOptions: {
+      input: {
+        main: resolve(import.meta.dirname, 'index.html'),
+        create: resolve(import.meta.dirname, 'create/index.html'),
+      },
+    },
+  },
   plugins: [
     react(),
     edgeTTSPlugin()

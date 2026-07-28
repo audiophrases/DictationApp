@@ -4,10 +4,7 @@ import { splitIntoSentences } from '../../lib/sentences';
 import { SPEEDS, LANGUAGES, REPLAY_LIMITS } from '../../lib/options';
 import { createAssignment, publishAssignment } from '../../lib/assignmentApi';
 import { recordSentences } from '../../lib/buildAssignment';
-
-function assignmentLink(code) {
-  return `${window.location.origin}${window.location.pathname}?a=${code}`;
-}
+import { studentLink } from '../../lib/appLinks';
 
 // A date input gives a day, and homework is due at the end of that day rather
 // than at midnight as it starts.
@@ -104,7 +101,7 @@ function CreateAssignmentScreen({ initial, onCancel, onFinished, requireServer }
   }
 
   function copyLink() {
-    navigator.clipboard?.writeText(assignmentLink(code)).then(
+    navigator.clipboard?.writeText(studentLink(code)).then(
       () => {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
@@ -127,7 +124,7 @@ function CreateAssignmentScreen({ initial, onCancel, onFinished, requireServer }
           <div className="assignment-code">{code}</div>
 
           <div className="assignment-link">
-            <input readOnly value={assignmentLink(code)} onFocus={(e) => e.target.select()} />
+            <input readOnly value={studentLink(code)} onFocus={(e) => e.target.select()} />
             <button className="btn-ghost btn-small" onClick={copyLink}>
               {copied ? <><Check size={15} /> Copied</> : <><Copy size={15} /> Copy</>}
             </button>

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- One level down from the app root, so these are ../ rather than ./ -->
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Assignments · Dictation Time</title>
+    <!-- No manifest and no service worker here on purpose. This page is the
+         teacher's, always online, and never installed; registering a worker
+         from a subdirectory would also claim the wrong scope. -->
+    <meta name="theme-color" content="#2563eb" />
+    <!-- Teacher pages should not be indexed or shared around. -->
+    <meta name="robots" content="noindex" />
+    <script>
+      // Set the theme before first paint so there's no flash of the wrong
+      // theme; kept in sync with the app's own read/write of this key.
+      (function () {
+        try {
+          var saved = localStorage.getItem('dictation.theme');
+          if (saved === 'dark') document.documentElement.dataset.theme = 'dark';
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="../src/teacher-main.jsx"></script>
+  </body>
+</html>

@@ -19,7 +19,7 @@
 // Pages that audio is cross-origin anyway, and cross-origin requests return
 // early below — including everything the assignment worker serves, which must
 // never be cached because replays are counted server-side.
-const VERSION = 'v2';
+const VERSION = 'v3';
 const SHELL_CACHE = `dictation-shell-${VERSION}`;
 const ASSET_CACHE = `dictation-assets-${VERSION}`;
 
@@ -96,6 +96,11 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith(`${BASE}api/`) || url.pathname === `${BASE}health`) return;
+  // The teacher's page at create/ is inside this scope but is not part of the
+  // installed student app. Left alone deliberately: the navigation fallback
+  // below would answer it with the student index.html, which is a worse
+  // outcome than a plain offline error on a page that is always online anyway.
+  if (url.pathname.startsWith(`${BASE}create`)) return;
 
   if (request.mode === 'navigate') {
     event.respondWith(networkFirst(request, SHELL_CACHE, `${BASE}index.html`));

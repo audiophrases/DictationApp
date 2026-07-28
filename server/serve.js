@@ -63,7 +63,12 @@ const STATIC_MIME = {
 //   sw.js        a year-long cache would pin students to an old service worker,
 //                which would then keep serving the old app out of its own cache
 //   manifest     name/icon changes should actually reach installed apps
-const ALWAYS_REVALIDATE = new Set(['/index.html', '/sw.js', '/manifest.webmanifest']);
+const ALWAYS_REVALIDATE = new Set([
+  '/index.html',
+  '/create/index.html',
+  '/sw.js',
+  '/manifest.webmanifest',
+]);
 
 function sendJson(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -78,7 +83,9 @@ function serveStatic(pathname, res) {
     sendJson(res, 400, { error: 'Bad request' });
     return;
   }
-  if (decoded === '/') decoded = '/index.html';
+  // A directory is served by its index.html — the app root, and the teacher's
+  // page at /create/.
+  if (decoded.endsWith('/')) decoded += 'index.html';
 
   const filePath = path.normalize(path.join(DIST_DIR, decoded));
   const insideRoot = filePath.startsWith(DIST_DIR + path.sep) || filePath === path.join(DIST_DIR, 'index.html');
@@ -92,6 +99,14 @@ function serveStatic(pathname, res) {
     stat = fs.statSync(filePath);
   } catch {
     sendJson(res, 404, { error: 'Not found' });
+    return;
+  }
+  // /create -> /create/. The redirect matters rather than just serving the
+  // index: that page reaches its bundles with ../assets/, which only resolves
+  // correctly when the browser thinks it is inside a directory.
+  if (stat.isDirectory()) {
+    res.writeHead(301, { Location: `${decoded.replace(/\/?$/, '/')}`, 'Cache-Control': 'no-store' });
+    res.end();
     return;
   }
   if (!stat.isFile()) {

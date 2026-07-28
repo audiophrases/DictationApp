@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, Copy, Loader2, RefreshCw } from 'lucide-react';
 import { getAssignment } from '../../lib/assignmentApi';
 import { accuracyClass } from '../../lib/score';
+import { studentLink } from '../../lib/appLinks';
 
 function formatWhen(ms) {
   if (!ms) return '—';
@@ -56,11 +57,7 @@ function AssignmentDetail({ code, onBack, onOpenAttempt }) {
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <button
               className="btn-ghost btn-small"
-              onClick={() =>
-                navigator.clipboard?.writeText(
-                  `${window.location.origin}${window.location.pathname}?a=${code}`
-                )
-              }
+              onClick={() => navigator.clipboard?.writeText(studentLink(code))}
             >
               <Copy size={15} /> Copy link
             </button>

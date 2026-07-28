@@ -230,6 +230,16 @@ input:focus {
   color: var(--text-muted);
 }
 
+.login-help a {
+  color: var(--primary-color);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.login-help a:hover {
+  text-decoration: underline;
+}
+
 /* The code a student types or a teacher reads out loud. Wide tracking because
    it gets copied off a whiteboard one character at a time. */
 .assignment-code {

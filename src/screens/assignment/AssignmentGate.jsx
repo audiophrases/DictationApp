@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Headphones, Loader2, LogIn, RefreshCw } from 'lucide-react';
 import { getAssignmentMeta, recallAttempt } from '../../lib/assignmentApi';
+import { STUDENT_SIGNUP_URL, STUDENT_LOGIN_LOOKUP_URL } from '../../lib/studentAccounts';
 
 function formatDue(ms) {
   if (!ms) return null;
@@ -143,6 +144,25 @@ function AssignmentGate({ code, onStart, starting, startError }) {
             <p className="field-hint" style={{ textAlign: 'center' }}>
               The same username and password you use for PinPlay.
             </p>
+
+            {/* Both open in a new tab on purpose: a student sorting out their
+                login must not lose the assignment page they are standing on. */}
+            {(STUDENT_SIGNUP_URL || STUDENT_LOGIN_LOOKUP_URL) && (
+              <p className="field-hint login-help" style={{ textAlign: 'center', marginTop: 0 }}>
+                {STUDENT_SIGNUP_URL && (
+                  <>
+                    No account?{' '}
+                    <a href={STUDENT_SIGNUP_URL} target="_blank" rel="noopener noreferrer">Sign up</a>
+                  </>
+                )}
+                {STUDENT_SIGNUP_URL && STUDENT_LOGIN_LOOKUP_URL ? ' · ' : null}
+                {STUDENT_LOGIN_LOOKUP_URL && (
+                  <a href={STUDENT_LOGIN_LOOKUP_URL} target="_blank" rel="noopener noreferrer">
+                    Forgot username/password?
+                  </a>
+                )}
+              </p>
+            )}
           </div>
         )}
       </form>

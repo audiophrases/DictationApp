@@ -95,6 +95,15 @@ for PinPlay**, and type what they hear. `?teacher` on the app URL opens the
 results: who has handed in, their scores, how often each sentence was played,
 and the word-by-word marking of any attempt.
 
+A student who can't get in has the same two doors as in PinPlay, linked under
+the sign-in box: **Sign up** (the Google Form that feeds your roster sheet) and
+**Forgot username/password** (the Apps Script page that identifies them by the
+school Google account they're already signed into and shows them their own
+row). Both live in [src/lib/studentAccounts.js](src/lib/studentAccounts.js) —
+set either to `''` to hide that link. Nothing about them touches this app, which
+is why there is no password-reset machinery here: the school's Google sign-in is
+the proof of identity.
+
 **The passage text never reaches a student's browser until they submit.** The
 worker sends audio by sentence number and withholds the sentences themselves,
 so there is nothing to read in the page source, in storage, or in the network

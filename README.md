@@ -82,6 +82,25 @@ The service worker deliberately caches hashed `/assets` forever but always
 revalidates `index.html` and itself, so a redeploy can't leave a student on a
 stale shell pointing at deleted bundles.
 
+## Lesson dictations
+
+Free practice can also take a lesson from **Speech to IPA**: pick one and its
+sentences become the dictation, one lesson to one dictation. Available in the
+five languages that app teaches — English, Catalan, French, Italian and
+Moroccan Darija — currently 38 lessons of 6 sentences each.
+
+The lessons are not stored here. Both apps read the same published Google
+Sheet, so editing a sentence there changes it in both with nothing to rebuild;
+[speechtoipa/SCRIPTER_INSTRUCTIONS.md](https://github.com/audiophrases/speechtoipa)
+documents the row schema, and [src/lib/lessons.js](src/lib/lessons.js) maps this
+app's language codes onto its tabs. Each tab is ~200 KB, so it is fetched only
+when someone actually opens the picker, never on page load.
+
+A lesson is joined one sentence per line, which is exactly how
+`splitIntoSentences` divides it again — so it behaves like any other passage
+from there on, including hiding the text until the dictation is done and being
+set as an assignment.
+
 ## Assignments
 
 The teacher's side is its own page at **`/create/`** — the same shape pinplay

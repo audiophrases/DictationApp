@@ -7,6 +7,7 @@ import ResultsScreen from './screens/ResultsScreen';
 import WakingOverlay from './components/WakingOverlay';
 import { splitIntoSentences } from './lib/sentences';
 import { ttsBase } from './lib/api';
+import { lessonToPassage } from './lib/lessons';
 
 const SETTINGS_KEY = 'dictation.settings';
 const PASSAGE_KEY = 'dictation.passage';
@@ -99,6 +100,23 @@ function PracticeApp({ onOpenTeacher }) {
     } catch (err) {
       setFetchState({ loading: false, error: err.message });
     }
+  };
+
+  // A lesson arrives as a list of sentences rather than prose, so it is joined
+  // one per line — splitIntoSentences ends a sentence at a line break, which
+  // makes the dictation follow the lesson exactly. Given a citation like a
+  // fetched passage so it is hidden on the setup screen for the same reason:
+  // the student should hear these sentences before reading them.
+  const pickLesson = (lesson) => {
+    const text = lessonToPassage(lesson);
+    setPassageRaw(text);
+    setPassageSource({
+      text,
+      title: lesson.title,
+      source: 'Speech to IPA lesson',
+      lessonId: lesson.id,
+    });
+    setFetchState({ loading: false, error: null });
   };
 
   // Anti-cheat: leaving the page/window during dictation is recorded
@@ -241,6 +259,7 @@ function PracticeApp({ onOpenTeacher }) {
         onFetchPassage={fetchPassage}
         fetchState={fetchState}
         passageSource={passageSource}
+        onPickLesson={pickLesson}
         onAssign={() => onOpenTeacher({ passage, settings, source: passageSource })}
       />
     );

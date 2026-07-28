@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Play, Sparkles, Loader2, EyeOff, Eye, BookOpen, ClipboardList } from 'lucide-react';
+import { Play, Sparkles, Loader2, EyeOff, Eye, BookOpen, ClipboardList, GraduationCap } from 'lucide-react';
 import { splitIntoSentences, countWords } from '../lib/sentences';
 import { SPEEDS, LANGUAGES, FETCH_SUPPORTED, REPLAY_LIMITS, languageName } from '../lib/options';
+import { hasLessons, fetchLessons } from '../lib/lessons';
 import SourceCitation from '../components/SourceCitation';
 
 function SetupScreen({
@@ -14,6 +15,7 @@ function SetupScreen({
   fetchState,
   passageSource,
   onAssign,
+  onPickLesson,
 }) {
   const sentenceCount = splitIntoSentences(passage).length;
   const wordCount = countWords(passage);
@@ -29,6 +31,28 @@ function SetupScreen({
     setRevealed(false);
   }, [passageSource?.text]);
   const hidden = !!passageSource && !revealed;
+
+  // Lessons are fetched only once someone asks for them: each language's tab is
+  // a ~200 KB download, and most sessions never open the picker.
+  const [lessons, setLessons] = useState(null);
+  const [lessonState, setLessonState] = useState({ loading: false, error: null });
+  const lessonsAvailable = hasLessons(settings.lang);
+
+  // A lesson list belongs to one language, so switching language drops it.
+  useEffect(() => {
+    setLessons(null);
+    setLessonState({ loading: false, error: null });
+  }, [settings.lang]);
+
+  const loadLessons = async () => {
+    setLessonState({ loading: true, error: null });
+    try {
+      setLessons(await fetchLessons(settings.lang));
+      setLessonState({ loading: false, error: null });
+    } catch (err) {
+      setLessonState({ loading: false, error: err.message });
+    }
+  };
 
   const updateSetting = (key, value) => setSettings({ ...settings, [key]: value });
 
@@ -116,6 +140,48 @@ function SetupScreen({
             </div>
             {fetchState.error && <div className="fetch-error">{fetchState.error}</div>}
           </div>
+
+          {lessonsAvailable && (
+            <div className="fetch-panel">
+              <div className="fetch-panel-head">
+                <GraduationCap size={18} className="fetch-panel-icon" />
+                <div>
+                  <div className="fetch-panel-title">Lesson dictations</div>
+                  <div className="fetch-panel-sub">
+                    The same lessons as Speech to IPA — one lesson makes one dictation.
+                  </div>
+                </div>
+              </div>
+
+              {lessons ? (
+                <select
+                  defaultValue=""
+                  onChange={(e) => {
+                    const lesson = lessons.find((l) => l.id === e.target.value);
+                    if (lesson) onPickLesson(lesson);
+                  }}
+                  style={{ width: '100%' }}
+                >
+                  <option value="" disabled>
+                    Choose a lesson…
+                  </option>
+                  {lessons.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.title} · {l.sentences.length} sentence{l.sentences.length !== 1 ? 's' : ''}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <button className="btn-ghost" onClick={loadLessons} disabled={lessonState.loading}>
+                  {lessonState.loading
+                    ? <><Loader2 size={16} className="spin" /> Loading lessons…</>
+                    : <>Browse {langName} lessons</>}
+                </button>
+              )}
+
+              {lessonState.error && <div className="fetch-error">{lessonState.error}</div>}
+            </div>
+          )}
 
           <div>
             <div className="passage-label-row">

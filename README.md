@@ -82,6 +82,27 @@ The service worker deliberately caches hashed `/assets` forever but always
 revalidates `index.html` and itself, so a redeploy can't leave a student on a
 stale shell pointing at deleted bundles.
 
+## Splitting a passage into sentences
+
+A period is only sometimes the end of a sentence, and getting it wrong is worse
+here than in most places: "John M. Smith was born" split after the initial hands
+a student "John M." as a whole dictation item. Sampled against live fetched
+passages, roughly **one passage in three** had at least one such break — the
+worst being French earthquake magnitudes splitting mid-number, into "…à 9." and
+"0 sur l'échelle de Richter."
+
+[src/lib/sentences.js](src/lib/sentences.js) therefore judges each candidate
+rather than trusting it, and is deliberately biased towards *not* splitting: an
+over-long item is a bad dictation, a fragment like "Dr." is a broken one. It
+keeps initials, decimals, acronyms, list markers and a multilingual set of
+titles together, and treats a following lowercase word as a sentence carrying
+on. The residual risk is the reverse — two real sentences joined when the second
+starts lowercase — measured at under 1% of sentences and almost always a
+fragment the old splitter had itself invented.
+
+`npm test` covers both directions: what must stay whole and what must still
+split.
+
 ## Lesson dictations
 
 Free practice can also take a lesson from **Speech to IPA**: pick one and its

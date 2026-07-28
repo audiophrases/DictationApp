@@ -14,7 +14,9 @@
     "start": "node server/serve.js",
     "icons": "node scripts/make-icons.mjs",
     "pack:win": "npm run build && node scripts/pack-win.mjs",
-    "test:worker": "node cloudflare/worker.test.mjs"
+    "test:worker": "node cloudflare/worker.test.mjs",
+    "test:score": "node src/lib/score.test.mjs",
+    "test": "npm run test:score && npm run test:worker"
   },
   "dependencies": {
     "diff": "^9.0.0",

@@ -89,8 +89,9 @@ function AttemptDetail({ code, attempt, onBack }) {
             </div>
 
             <p style={{ marginTop: '1rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              <span className="word-missed">Green underline</span> = words missed from the original.{' '}
-              <span className="word-extra">Red</span> = extra or incorrect words typed.
+              <span className="word-extra">Red</span> = what the student typed, followed by{' '}
+              <span className="word-missed">green underline</span> = what it should have been. A
+              green word on its own was left out.
             </p>
           </>
         ) : null}

@@ -41,7 +41,7 @@ function loadSource() {
  * server-side state, and fully offline-capable under the portable pack — the
  * original app, unchanged apart from where its audio comes from.
  */
-function PracticeApp({ onOpenTeacher }) {
+function PracticeApp() {
   const { speak, prefetch, stop, isSpeaking } = useSpeech();
   const { waking, requireServer, dismiss: dismissWaking } = useServerReady();
   const [appState, setAppState] = useState('setup'); // setup, dictating, finished
@@ -260,7 +260,6 @@ function PracticeApp({ onOpenTeacher }) {
         fetchState={fetchState}
         passageSource={passageSource}
         onPickLesson={pickLesson}
-        onAssign={() => onOpenTeacher({ passage, settings, source: passageSource })}
       />
     );
   }

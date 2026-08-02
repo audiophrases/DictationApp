@@ -16,10 +16,8 @@ import { assignmentsAvailable } from './lib/api';
  * nothing is shared — different data, different requests, and a password gate
  * in front of all of it.
  */
-function TeacherApp({ createFrom, onExit }) {
-  // Straight to the form when arriving via "Set as an assignment…", so the
-  // teacher isn't bounced back to a list they didn't ask for.
-  const [view, setView] = useState(() => (createFrom ? 'create' : 'dashboard'));
+function TeacherApp({ onExit }) {
+  const [view, setView] = useState('dashboard');
   // Mirrored into state because the password itself lives in a module variable
   // that React cannot re-render on — signing in has to change something React
   // is watching, or the login screen stays up over a valid session.
@@ -52,7 +50,7 @@ function TeacherApp({ createFrom, onExit }) {
       <TeacherLogin
         onSignedIn={() => {
           setSignedIn(true);
-          setView(createFrom ? 'create' : 'dashboard');
+          setView('dashboard');
         }}
         onCancel={onExit}
       />
@@ -60,7 +58,6 @@ function TeacherApp({ createFrom, onExit }) {
   } else if (view === 'create') {
     screen = (
       <CreateAssignmentScreen
-        initial={createFrom}
         requireServer={requireServer}
         onCancel={() => setView('dashboard')}
         onFinished={() => setView('dashboard')}

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import PracticeApp from './PracticeApp';
 import AssignmentApp from './AssignmentApp';
 import ThemeToggle from './components/ThemeToggle';
-import { createPageUrl, stashAssignmentDraft } from './lib/appLinks';
+import { createPageUrl } from './lib/appLinks';
 import './index.css';
 
 const THEME_KEY = 'dictation.theme';
@@ -50,17 +50,12 @@ function App() {
     }
   }, []);
 
-  const openTeacherPage = (draft) => {
-    stashAssignmentDraft(draft);
-    window.location.href = createPageUrl();
-  };
-
   return (
     <>
       <ThemeToggle theme={theme} onToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} />
       {area.name === 'assignment'
         ? <AssignmentApp code={area.code} />
-        : <PracticeApp onOpenTeacher={openTeacherPage} />}
+        : <PracticeApp />}
     </>
   );
 }

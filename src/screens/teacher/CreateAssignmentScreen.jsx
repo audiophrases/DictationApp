@@ -15,14 +15,14 @@ function endOfDay(dateString) {
   return new Date(y, m - 1, d, 23, 59, 59).getTime();
 }
 
-function CreateAssignmentScreen({ initial, onCancel, onFinished, requireServer }) {
-  const [passage, setPassage] = useState(initial?.passage || '');
-  const [title, setTitle] = useState(initial?.source?.title || '');
+function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
+  const [passage, setPassage] = useState('');
+  const [title, setTitle] = useState('');
   const [className, setClassName] = useState('');
   const [due, setDue] = useState('');
-  const [lang, setLang] = useState(initial?.settings?.lang || 'en-US');
-  const [rate, setRate] = useState(initial?.settings?.rate ?? 1);
-  const [maxListens, setMaxListens] = useState(initial?.settings?.maxListens ?? 0);
+  const [lang, setLang] = useState('en-US');
+  const [rate, setRate] = useState(1);
+  const [maxListens, setMaxListens] = useState(0);
   const [attemptsLimit, setAttemptsLimit] = useState(1);
   const [feedbackMode, setFeedbackMode] = useState('end');
   const [grading, setGrading] = useState({
@@ -82,7 +82,6 @@ function CreateAssignmentScreen({ initial, onCancel, onFinished, requireServer }
         lang,
         rate,
         grading,
-        source: initial?.source || null,
       });
       setCode(newCode);
       setSentences(list);

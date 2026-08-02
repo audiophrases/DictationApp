@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Play, Sparkles, Loader2, EyeOff, Eye, BookOpen, ClipboardList, GraduationCap } from 'lucide-react';
+import { Play, Sparkles, Loader2, EyeOff, Eye, BookOpen, GraduationCap } from 'lucide-react';
 import { splitIntoSentences, countWords } from '../lib/sentences';
 import { SPEEDS, LANGUAGES, FETCH_SUPPORTED, REPLAY_LIMITS, languageName } from '../lib/options';
 import { hasLessons, fetchLessons } from '../lib/lessons';
@@ -14,7 +14,6 @@ function SetupScreen({
   onFetchPassage,
   fetchState,
   passageSource,
-  onAssign,
   onPickLesson,
 }) {
   const sentenceCount = splitIntoSentences(passage).length;
@@ -231,18 +230,6 @@ function SetupScreen({
           >
             <Play size={24} /> Start Dictation Session
           </button>
-
-          {onAssign && (
-            <button
-              className="btn-ghost"
-              style={{ width: '100%' }}
-              onClick={onAssign}
-              disabled={!passage.trim()}
-              title="Set this passage as homework for your class"
-            >
-              <ClipboardList size={18} /> Set as an assignment…
-            </button>
-          )}
         </div>
       </div>
     </div>

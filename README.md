@@ -130,11 +130,10 @@ results: who has handed in, their scores, how often each sentence was played,
 and the word-by-word marking of any attempt. (`?teacher`, where this used to
 live, redirects there.)
 
-Creating one: **New assignment**, or **Set as an assignment…** on the practice
-screen, which carries the passage across. Fill in the form (title, class, due
-date, replays allowed, attempts, marking rules) and it does one slow thing once
-— reads every sentence aloud and stores it. Then you get a six-character code
-and a link to share.
+Creating one: **New assignment**, then fill in the form (title, class, due
+date, replays allowed, attempts, marking rules). It does one slow thing once —
+reads every sentence aloud and stores it — and then you get a six-character
+code and a link to share.
 
 Students open that link and sign in with **the same username and password they
 use for PinPlay**, then type what they hear.
@@ -143,6 +142,10 @@ Two pages rather than one app with a route, because a static host has no
 rewrites and because they share almost nothing: a Chromebook opening the
 student app downloads none of the dashboard, the builder, or anything else
 behind the password.
+
+Nothing on the practice page points here — no link, no passage handed across.
+The practice page is what a class sees, so it carries nothing aimed at the
+teacher; typing the address is quicker than a button anyway.
 
 A student who can't get in has the same two doors as in PinPlay, linked under
 the sign-in box: **Sign up** (the Google Form that feeds your roster sheet) and

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import TeacherApp from './TeacherApp';
 import ThemeToggle from './components/ThemeToggle';
-import { appRoot, takeAssignmentDraft } from './lib/appLinks';
+import { appRoot } from './lib/appLinks';
 import './index.css';
 
 const THEME_KEY = 'dictation.theme';
@@ -21,9 +21,6 @@ function loadTheme() {
  */
 function TeacherPage() {
   const [theme, setTheme] = useState(loadTheme);
-  // Read once on mount: arriving from "Set as an assignment…" carries a passage
-  // over, and taking it here clears it so a later visit opens the dashboard.
-  const [draft] = useState(takeAssignmentDraft);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -33,10 +30,7 @@ function TeacherPage() {
   return (
     <>
       <ThemeToggle theme={theme} onToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} />
-      <TeacherApp
-        createFrom={draft}
-        onExit={() => { window.location.href = appRoot(); }}
-      />
+      <TeacherApp onExit={() => { window.location.href = appRoot(); }} />
     </>
   );
 }

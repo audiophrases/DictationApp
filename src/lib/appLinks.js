@@ -5,6 +5,10 @@
 // The teacher page lives one level down at <root>/create/, so nothing here may
 // assume location.pathname is the root — a student link built from the teacher
 // page would otherwise come out as …/create/?a=CODE and 404 for the class.
+//
+// There is no link from the practice page to /create/ and no passage handed
+// across: the practice page is what students see, and it should carry nothing
+// aimed at the teacher. The teacher types the address.
 
 /** Absolute URL of the app root, with a trailing slash, from either page. */
 export function appRoot() {
@@ -25,30 +29,4 @@ export function studentLink(code) {
 /** The teacher page. */
 export function createPageUrl() {
   return `${appRoot()}create/`;
-}
-
-// Handing a passage from the practice page to the teacher page. sessionStorage
-// rather than a query parameter: a whole passage does not belong in a URL, and
-// this way it cannot end up in browser history or a shared link. Read once and
-// cleared, so a later visit to /create/ opens the normal dashboard.
-const DRAFT_KEY = 'dictation.assignmentDraft';
-
-export function stashAssignmentDraft(draft) {
-  try {
-    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-    return true;
-  } catch {
-    // Private mode or a full quota: the teacher can still paste the passage in.
-    return false;
-  }
-}
-
-export function takeAssignmentDraft() {
-  try {
-    const raw = sessionStorage.getItem(DRAFT_KEY);
-    sessionStorage.removeItem(DRAFT_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
 }

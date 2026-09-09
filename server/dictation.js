@@ -67,14 +67,16 @@ export function isUnsuitableTitle(title) {
   return SKIP_TITLE_MARKERS.some((m) => t.includes(m));
 }
 
-// Wikimedia's User-Agent policy requires a contact (a URL or an email). A UA
-// without one is treated as unidentified and capped at ~10 API requests per
-// window across every Wikimedia host — an allowance a single "fetch a passage"
-// click can spend on its own, which made fetching fail for every
-// Wikipedia-only language. Keep the contact details: removing them silently
-// reinstates the cap.
-const USER_AGENT =
-  'DictationApp/0.2 (https://github.com/audiophrases/DictationApp; eugenime@gmail.com)';
+// Wikimedia's User-Agent policy requires a contact. A UA without one is
+// treated as unidentified and capped at ~10 API requests per window across
+// every Wikimedia host — an allowance a single "fetch a passage" click can
+// spend on its own, which made fetching fail for every Wikipedia-only
+// language. Keep the URL: removing it silently reinstates the cap.
+//
+// The policy accepts a URL or an email, and the repo URL is enough (measured:
+// 40 rapid requests, no 429), so no personal address is published here or
+// sent to Wikimedia on every request.
+const USER_AGENT = 'DictationApp/0.2 (https://github.com/audiophrases/DictationApp)';
 
 export function cleanExtract(raw) {
   return (raw || '')

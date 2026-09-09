@@ -67,7 +67,14 @@ export function isUnsuitableTitle(title) {
   return SKIP_TITLE_MARKERS.some((m) => t.includes(m));
 }
 
-const USER_AGENT = 'DictationApp/0.2 (educational dictation practice)';
+// Wikimedia's User-Agent policy requires a contact (a URL or an email). A UA
+// without one is treated as unidentified and capped at ~10 API requests per
+// window across every Wikimedia host — an allowance a single "fetch a passage"
+// click can spend on its own, which made fetching fail for every
+// Wikipedia-only language. Keep the contact details: removing them silently
+// reinstates the cap.
+const USER_AGENT =
+  'DictationApp/0.2 (https://github.com/audiophrases/DictationApp; eugenime@gmail.com)';
 
 export function cleanExtract(raw) {
   return (raw || '')
@@ -171,7 +178,11 @@ async function fetchRandomArticle(host, signal) {
   });
   const url = `https://${host}${API_PATH}?${params.toString()}`;
   const resp = await fetch(url, { headers: { 'User-Agent': USER_AGENT, 'Api-User-Agent': USER_AGENT }, signal });
-  if (!resp.ok) throw new Error(`${host} responded ${resp.status}`);
+  if (!resp.ok) {
+    const err = new Error(`${host} responded ${resp.status}`);
+    err.status = resp.status;
+    throw err;
+  }
   const data = await resp.json();
   const pages = data?.query?.pages;
   if (!pages) return null;
@@ -195,6 +206,7 @@ export async function fetchDictation(sources, length, { checkCaps = true, attemp
   const deadline = Date.now() + budgetMs;
   let networkErrors = 0;
   let fetchedAny = false;
+  let rateLimited = false;
   for (const source of sources) {
     for (let i = 0; i < attemptsPerSource && Date.now() < deadline; i++) {
       const controller = new AbortController();
@@ -215,10 +227,21 @@ export async function fetchDictation(sources, length, { checkCaps = true, attemp
             };
           }
         }
-      } catch {
-        // A failed/aborted attempt (timeout, rate limit, network) — count it
-        // and try another random article / the next source.
+      } catch (err) {
         networkErrors++;
+        // A 429 is the upstream asking us to stop, not a transient blip:
+        // retrying immediately only deepens the block, and Wikimedia counts
+        // one allowance across all of its hosts, so the retries cannot
+        // succeed. Give up on this source; the next one is a different site.
+        if (err.status === 429) {
+          rateLimited = true;
+          console.warn(`Dictation fetch: ${source.host} rate-limited (429) — skipping source`);
+          break;
+        }
+        // Anything else (timeout, network) is worth another random article.
+        // Logged, because the silent catch that used to be here is what made
+        // a rate limit indistinguishable from a timeout in production.
+        console.warn(`Dictation fetch: ${source.host} attempt ${i + 1} failed — ${err.message}`);
       } finally {
         clearTimeout(timer);
       }
@@ -227,7 +250,11 @@ export async function fetchDictation(sources, length, { checkCaps = true, attemp
   // If we never once reached a source, this is a connectivity/rate-limit
   // problem, not a lack of suitable content — signal that distinctly.
   if (!fetchedAny && networkErrors > 0) {
-    const err = new Error('Could not reach the source. Please try again in a moment.');
+    const err = new Error(
+      rateLimited
+        ? 'The encyclopedia is limiting how often we can fetch right now. Please try again in a minute.'
+        : 'Could not reach the source. Please try again in a moment.'
+    );
     err.code = 'UPSTREAM_UNAVAILABLE';
     throw err;
   }

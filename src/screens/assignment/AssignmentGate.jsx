@@ -134,7 +134,7 @@ function AssignmentGate({ code, onStart, starting, startError, onIdentityChange 
                   : <><LogIn size={18} /> {resume ? 'Carry on' : 'Start'}</>}
               </button>
             </> : <>
-              <p className="field-hint">{domain ? `Sign in with your ${domain} school account.` : 'Sign in with your school Google account, the same one you use for PinPlay.'}</p>
+              <p className="field-hint">{domain ? `Sign in with your ${domain} school account.` : 'Sign in with your Google account.'}</p>
               {signingIn ? <p role="status"><Loader2 size={18} className="spin" /> Signing in…</p>
                 : config?.loginEnabled && config.googleClientId
                   ? <GoogleSignIn clientId={config.googleClientId} onCredential={handleCredential} />

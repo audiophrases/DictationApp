@@ -24,10 +24,12 @@ const marked = (original, typed) =>
     (s) => `${s.type === 'correct' ? '' : s.type === 'extra' ? 'R:' : 'G:'}${s.words.join(' ')}`
   );
 
+// A real word swap, not a case slip: marking ignores case by default, so a
+// case-only difference is no longer a substitution at all.
 check(
   'a substitution reads mistake first, correction after',
-  marked('Lava comes out of it.', 'lava comes out of it.'),
-  ['R:lava', 'G:Lava', 'comes out of it.']
+  marked('Lava comes out of it.', 'Water comes out of it.'),
+  ['R:Water', 'G:Lava', 'comes out of it.']
 );
 
 check(

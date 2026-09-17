@@ -1,9 +1,15 @@
 import * as Diff from 'diff';
 
+// All on by default. A student who hears "café" and types "cafe", starts a
+// sentence in lower case, or drops a comma has still heard the words — and the
+// words are what a dictation is testing. Anyone who wants stricter marking (a
+// spelling test, say) turns these off by hand: the student on the results
+// screen, the teacher when creating an assignment. This is the one place the
+// defaults live; both of those screens start from it.
 export const DEFAULT_GRADING_OPTIONS = {
-  ignoreCase: false,
-  ignorePunctuation: false,
-  ignoreAccents: false,
+  ignoreCase: true,
+  ignorePunctuation: true,
+  ignoreAccents: true,
 };
 
 const PUNCTUATION_RE = /[\p{P}\p{S}]/gu;

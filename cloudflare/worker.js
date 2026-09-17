@@ -30,7 +30,7 @@
 // per-sentence scores are reported by the client rather than graded here.
 // An ipa assignment is therefore born 'active': no clips to upload means no
 // draft/publish step.
-import { gradeDictation, DEFAULT_GRADING_OPTIONS } from '../src/lib/grading.js';
+import { gradeDictation, gradeSentence, DEFAULT_GRADING_OPTIONS } from '../src/lib/grading.js';
 import { splitIntoSentences } from '../src/lib/sentences.js';
 
 const CORS_HEADERS = {
@@ -106,6 +106,11 @@ function studentKeyFromEmail(email) {
   const e = String(email || '').trim().toLowerCase();
   const base = e.replace(/[^a-z0-9._@-]+/g, '');
   return base ? `usr_${base}`.slice(0, 96) : '';
+}
+
+function gradingFlag(grading, key) {
+  const sent = grading?.[key];
+  return sent === undefined ? DEFAULT_GRADING_OPTIONS[key] : !!sent;
 }
 
 function parseIndex(value, max) {
@@ -237,6 +242,31 @@ async function getJson(bucket, key) {
   }
 }
 
+// The etag of the object an attempt was read from, carried on the attempt
+// itself so saveAttempt can refuse to write over anything newer. Hidden from
+// enumeration, so JSON.stringify and object spreads never see it.
+const ETAG = Symbol('etag');
+
+async function getJsonWithEtag(bucket, key) {
+  const obj = await bucket.get(key);
+  if (!obj) return null;
+  try {
+    const value = await obj.json();
+    if (value && typeof value === 'object') {
+      Object.defineProperty(value, ETAG, { value: obj.etag });
+    }
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+// Thrown by saveAttempt when the attempt changed under it. The router catches
+// it and runs the handler again from the top: every handler reloads the
+// attempt before touching it, so the rerun simply applies its change on top
+// of whatever landed first.
+class AttemptConflict extends Error {}
+
 async function listAll(bucket, options) {
   const objects = [];
   let cursor;
@@ -281,16 +311,39 @@ function attemptMetadata(attempt) {
   };
 }
 
+// Every route that touches an attempt reads it, changes it and writes it back,
+// and two of those can overlap — an answer arriving while a listen is being
+// counted, say. An unconditional write would let the later one silently
+// discard the earlier one's change. In end mode that used to be harmless (the
+// hand-in re-sends every answer); in per-sentence mode a discarded answer is
+// a sentence the student has read and can now answer again, so the write is
+// conditional on the etag the attempt was read with. A new attempt has none
+// and is written plainly.
 async function saveAttempt(env, attempt) {
   attempt.updatedAt = Date.now();
-  await env.ASSIGN_BUCKET.put(
+  const etag = attempt[ETAG];
+  const written = await env.ASSIGN_BUCKET.put(
     attemptKey(attempt.code, attempt.studentKey, attempt.id),
     JSON.stringify(attempt),
     {
       httpMetadata: { contentType: 'application/json' },
       customMetadata: attemptMetadata(attempt),
+      ...(etag ? { onlyIf: { etagMatches: etag } } : {}),
     }
   );
+  if (etag && !written) throw new AttemptConflict('attempt changed while being updated');
+}
+
+// Runs a handler again when its attempt write lost a race. Bounded, and each
+// rerun starts from a fresh read, so this can never spin on stale state.
+async function retryingOnConflict(handler) {
+  for (let tries = 0; ; tries += 1) {
+    try {
+      return await handler();
+    } catch (err) {
+      if (!(err instanceof AttemptConflict) || tries >= 5) throw err;
+    }
+  }
 }
 
 async function nextCode(env) {
@@ -344,7 +397,15 @@ async function createAssignment(env, body) {
     dueAt,
     attemptsLimit: clamp(body.attemptsLimit ?? 1, 0, 10),
     maxListens: app === 'ipa' ? 0 : clamp(body.maxListens ?? 0, 0, 9),
-    feedbackMode: body.feedbackMode === 'none' ? 'none' : 'end',
+    // 'end' shows the marked answers after handing in; 'sentence' additionally
+    // marks each sentence the moment it is answered (see saveAnswer); 'none'
+    // shows nothing. Anything unrecognised is 'end', the historical default.
+    // 'sentence' is dictation-only: the reading app marks in the browser and
+    // only knows 'end' and 'none', so it is never stored on an ipa record.
+    feedbackMode:
+      body.feedbackMode === 'none' ? 'none'
+        : body.feedbackMode === 'sentence' && app !== 'ipa' ? 'sentence'
+          : 'end',
     settings:
       app === 'ipa'
         ? {
@@ -361,9 +422,12 @@ async function createAssignment(env, body) {
       app === 'ipa'
         ? null
         : {
-            ignoreCase: !!body.grading?.ignoreCase,
-            ignorePunctuation: !!body.grading?.ignorePunctuation,
-            ignoreAccents: !!body.grading?.ignoreAccents,
+            // A rule the teacher sent wins; one they did not send takes the
+            // app-wide default, so an assignment marks the way free practice
+            // does unless they chose otherwise.
+            ignoreCase: gradingFlag(body.grading, 'ignoreCase'),
+            ignorePunctuation: gradingFlag(body.grading, 'ignorePunctuation'),
+            ignoreAccents: gradingFlag(body.grading, 'ignoreAccents'),
           },
     source: body.source && typeof body.source === 'object' ? body.source : null,
     sentences,
@@ -501,6 +565,15 @@ function answersArray(attempt, count) {
   return out;
 }
 
+// One sentence, marked exactly the way gradeResults marks them all: same
+// rules, same numbers, so per-sentence feedback and the final results agree.
+function markSentence(record, index, text) {
+  return gradeSentence(record.sentences[index], text, {
+    ...DEFAULT_GRADING_OPTIONS,
+    ...record.grading,
+  });
+}
+
 function gradeResults(record, attempt) {
   return gradeDictation(
     record.sentences,
@@ -577,6 +650,10 @@ function startResponse(record, attempt, resumed) {
     resumed,
     nextIndex: nextIndex(attempt, record.sentenceCount),
     answers: answersArray(attempt, record.sentenceCount),
+    // Which of those are real: `answers` is padded with '' for every sentence
+    // not yet answered, and a stored blank looks the same. Per-sentence mode
+    // needs the difference — a sentence answered past a gap is not asked again.
+    answered: Object.keys(attempt.answers || {}).map(Number).sort((a, b) => a - b),
     listens: attempt.listens || {},
     warnings: attempt.warnings || 0,
     meta: studentMeta(record),
@@ -647,7 +724,7 @@ async function loadAttemptById(env, code, attemptId) {
   const objects = await listAll(env.ASSIGN_BUCKET, { prefix: `assign/${code}/attempts/` });
   const hit = objects.find((o) => o.key.endsWith(`/${attemptId}.json`));
   if (!hit) return null;
-  return getJson(env.ASSIGN_BUCKET, hit.key);
+  return getJsonWithEtag(env.ASSIGN_BUCKET, hit.key);
 }
 
 async function serveAudio(env, code, indexRaw, attemptId) {
@@ -677,7 +754,14 @@ async function serveAudio(env, code, indexRaw, attemptId) {
   let left = '';
   if (!submitted) {
     attempt.listens = { ...attempt.listens, [index]: used + 1 };
-    await saveAttempt(env, attempt);
+    try {
+      await saveAttempt(env, attempt);
+    } catch (error) {
+      // A retry fetches a fresh clip. Release this unread R2 stream before
+      // retrying so conflicting listens cannot exhaust open connections.
+      await object.body.cancel();
+      throw error;
+    }
     left = record.maxListens > 0 ? String(Math.max(0, record.maxListens + 1 - (used + 1))) : '';
   }
 
@@ -719,9 +803,39 @@ async function saveAnswer(env, code, body) {
     return json({ ok: true });
   }
 
-  attempt.answers = { ...attempt.answers, [index]: sanitizeText(body.text, MAX_ANSWER_CHARS) };
-  await saveAttempt(env, attempt);
-  return json({ ok: true });
+  if (record.feedbackMode !== 'sentence') {
+    attempt.answers = { ...attempt.answers, [index]: sanitizeText(body.text, MAX_ANSWER_CHARS) };
+    await saveAttempt(env, attempt);
+    return json({ ok: true });
+  }
+
+  // Per-sentence feedback hands back the sentence just answered, which is the
+  // one place the worker ever reveals passage text before submission. Two
+  // rules keep that from becoming a way to read the passage for marks:
+  //
+  //   Only the sentence the student is on. Answers arrive in order —
+  //   nextIndex is the first one still blank — so an index past it is a
+  //   request to read ahead: saved like any answer, but marked silently.
+  //   Decided before the save, which would advance nextIndex.
+  //
+  //   The first answer is final. Once a sentence has been shown, a second
+  //   answer for it could only be a copy, so a repeat never overwrites: it
+  //   gets the stored answer's marking back instead, which also makes a
+  //   retry after a lost response harmless. submitAttempt honours the same
+  //   rule, or the hand-in would be the loophole.
+  const onThisSentence = index <= nextIndex(attempt, record.sentenceCount);
+  const stored = attempt.answers?.[index];
+  let text = stored;
+  if (stored === undefined) {
+    text = sanitizeText(body.text, MAX_ANSWER_CHARS);
+    attempt.answers = { ...attempt.answers, [index]: text };
+    await saveAttempt(env, attempt);
+  }
+
+  if (!onThisSentence) return json({ ok: true });
+  // Marked here, not in the browser, for the same reason the final score is:
+  // under the teacher's rules, out of reach of the student's toggles.
+  return json({ ok: true, feedback: markSentence(record, index, text) });
 }
 
 async function recordWarning(env, code, body) {
@@ -765,12 +879,20 @@ async function submitAttempt(env, code, body) {
       // The client sends every answer again here, not just the last one. The
       // per-sentence saves are crash insurance; this is the authoritative copy,
       // so a dropped mid-session request can never cost a student marks.
+      //
+      // Except in per-sentence mode, where it is the other way round: a stored
+      // answer has already been marked and its sentence shown, so it is final
+      // (see saveAnswer). There the client's copy only fills gaps — an answer
+      // whose save never arrived — and can never replace what was marked.
       if (Array.isArray(body.answers)) {
         const answers = {};
         body.answers.slice(0, record.sentenceCount).forEach((text, i) => {
           if (typeof text === 'string') answers[i] = sanitizeText(text, MAX_ANSWER_CHARS);
         });
-        attempt.answers = { ...attempt.answers, ...answers };
+        attempt.answers =
+          record.feedbackMode === 'sentence'
+            ? { ...answers, ...attempt.answers }
+            : { ...attempt.answers, ...answers };
       }
 
       // Graded on the server so the score is the same number for the student and
@@ -790,7 +912,7 @@ async function submitAttempt(env, code, body) {
   }
   return json({
     ok: true,
-    feedbackMode: 'end',
+    feedbackMode: record.feedbackMode,
     results: attempt.results,
     scorePercent: attempt.scorePercent,
     scores: record.app === 'ipa' ? attempt.scores || {} : undefined,
@@ -922,16 +1044,26 @@ async function route(request, env) {
     }
 
     if (method === 'GET' && action === 'audio') {
-      return serveAudio(env, code, segments[4], sanitizeAttemptId(url.searchParams.get('attemptId')));
+      const attemptId = sanitizeAttemptId(url.searchParams.get('attemptId'));
+      return retryingOnConflict(() => serveAudio(env, code, segments[4], attemptId));
     }
 
     if (method === 'GET' && action === 'results') {
       return attemptResults(env, code, sanitizeAttemptId(url.searchParams.get('attemptId')));
     }
 
-    if (method === 'POST' && action === 'answer') return saveAnswer(env, code, await readJsonBody(request));
-    if (method === 'POST' && action === 'warning') return recordWarning(env, code, await readJsonBody(request));
-    if (method === 'POST' && action === 'submit') return submitAttempt(env, code, await readJsonBody(request));
+    if (method === 'POST' && action === 'answer') {
+      const body = await readJsonBody(request);
+      return retryingOnConflict(() => saveAnswer(env, code, body));
+    }
+    if (method === 'POST' && action === 'warning') {
+      const body = await readJsonBody(request);
+      return retryingOnConflict(() => recordWarning(env, code, body));
+    }
+    if (method === 'POST' && action === 'submit') {
+      const body = await readJsonBody(request);
+      return retryingOnConflict(() => submitAttempt(env, code, body));
+    }
 
     return fail('Unknown endpoint.', 404);
   }

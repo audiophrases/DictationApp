@@ -18,7 +18,9 @@ import {
  *
  * The shape is the same as free practice — hear a sentence, type it, move on —
  * but nothing about the passage is in this component. `sentenceCount` is all it
- * knows; audio arrives by index, and the marked answers only after submitting.
+ * knows; audio arrives by index, and the marked answers only after submitting
+ * — or, when the teacher chose per-sentence feedback, each one the moment it
+ * has been answered, and then never again for that sentence.
  */
 function AssignmentApp({ code }) {
   const [phase, setPhase] = useState('gate'); // gate | dictating | submitting | done
@@ -32,6 +34,10 @@ function AssignmentApp({ code }) {
   const [starting, setStarting] = useState(false);
   const [outcome, setOutcome] = useState(null);
   const [submitError, setSubmitError] = useState('');
+  // Per-sentence mode only: the marked sentence being shown, and the wait for
+  // the worker to mark the one just handed over.
+  const [feedback, setFeedback] = useState(null);
+  const [marking, setMarking] = useState(false);
 
   const audio = useAssignmentAudio({
     code,
@@ -49,16 +55,37 @@ function AssignmentApp({ code }) {
     answersRef.current = answersRef.current.with(index, text);
   };
 
+  // Set the moment handing in begins, so a mark still in flight when the
+  // student finished early cannot act on a dictation that has already ended
+  // — play the next sentence over the results, or hand in twice.
+  const endedRef = useRef(false);
+
+  // Per-sentence mode: answers whose save failed. They are re-sent ahead of
+  // the next save so the worker's idea of the sentence the student is on
+  // catches up — otherwise one blip would leave every later sentence unmarked,
+  // because the worker only marks in order. The first stored answer is final
+  // there, so re-sending one whose response was merely lost changes nothing.
+  const unsavedRef = useRef([]);
+
+  // Per-sentence mode: sentences that already had an answer stored when this
+  // attempt was resumed. They lie past the point the dictation picks up from
+  // — a save that landed while an earlier one did not — and were answered but
+  // never shown. The first answer is final on the worker, so asking again
+  // would only mark the old one; their marking is fetched and shown instead.
+  const restoredRef = useRef(new Set());
+
   const finish = useCallback(
-    async (finalAnswers) => {
+    async (finalAnswers, id = attemptId) => {
+      endedRef.current = true;
       stop();
       setPhase('submitting');
       setSubmitError('');
       try {
         // The whole answer set goes up here, not just the last sentence. The
         // per-sentence saves during the dictation are only insurance against a
-        // crash; this is the copy that gets marked.
-        const result = await submitAttempt(code, attemptId, finalAnswers);
+        // crash; this is the copy that gets marked (per-sentence mode aside,
+        // where the worker keeps what it already marked and this fills gaps).
+        const result = await submitAttempt(code, id, finalAnswers);
         forgetAttempt(code);
         setOutcome(result);
         setPhase('done');
@@ -84,7 +111,22 @@ function AssignmentApp({ code }) {
       answersRef.current = restored;
       rememberAttempt(code, data.attemptId, username);
 
+      // Per-sentence mode: every sentence answered means every one has been
+      // marked and shown, and only the hand-in was lost with the page. Redoing
+      // the last sentence would replay one they have already read.
+      if (data.meta.feedbackMode === 'sentence' && data.nextIndex >= count) {
+        await finish(restored, data.attemptId);
+        return;
+      }
+
       const resumeAt = Math.min(data.nextIndex, count - 1);
+      endedRef.current = false;
+      unsavedRef.current = [];
+      restoredRef.current = new Set(
+        data.meta.feedbackMode === 'sentence'
+          ? (data.answered || []).filter((i) => i > resumeAt)
+          : []
+      );
       setCurrentIndex(resumeAt);
       setStudentInput('');
       setPhase('dictating');
@@ -135,22 +177,77 @@ function AssignmentApp({ code }) {
     };
   }, [phase, code, attemptId]);
 
-  function nextSentence() {
+  function advance(index) {
+    const next = index + 1;
+    if (next >= meta.sentenceCount) {
+      finish(answersRef.current);
+      return;
+    }
+    setCurrentIndex(next);
+    if (restoredRef.current.has(next)) {
+      // Already answered (see restoredRef): show its marking, don't play it.
+      restoredRef.current.delete(next);
+      setMarking(true);
+      saveMarked(next, answersRef.current[next]).then((grade) => {
+        if (endedRef.current) return;
+        setMarking(false);
+        setFeedback({ index: next, grade });
+      });
+      return;
+    }
+    play(next);
+  }
+
+  async function nextSentence() {
     const index = currentIndex;
-    setAnswerAt(index, studentInput);
+    const text = studentInput;
+    setAnswerAt(index, text);
     setStudentInput('');
 
-    saveAnswer(code, attemptId, index, studentInput).catch(() => {
-      // Deliberately quiet: submit() re-sends every answer, so a dropped save
-      // here costs nothing and interrupting the student would cost attention.
-    });
-
-    if (index + 1 < meta.sentenceCount) {
-      setCurrentIndex(index + 1);
-      play(index + 1);
-    } else {
-      finish(answersRef.current);
+    if (meta.feedbackMode !== 'sentence') {
+      saveAnswer(code, attemptId, index, text).catch(() => {
+        // Deliberately quiet: submit() re-sends every answer, so a dropped save
+        // here costs nothing and interrupting the student would cost attention.
+      });
+      advance(index);
+      return;
     }
+
+    // Per-sentence marks ride back on the save, so this one is waited on. A
+    // failed save still must not strand the student: the answer is re-sent at
+    // submit regardless, so they move on with that one sentence unmarked.
+    setMarking(true);
+    const grade = await saveMarked(index, text);
+    if (endedRef.current) return;
+    setMarking(false);
+    // Always a panel, marked or not: the student's click to continue is what
+    // starts the next sentence, and play() has to stay inside that click (see
+    // useAssignmentAudio). A null grade renders as "couldn't mark this one".
+    setFeedback({ index, grade });
+  }
+
+  async function saveMarked(index, text) {
+    // Earlier answers whose save failed go first, in order (see unsavedRef).
+    for (const i of [...unsavedRef.current]) {
+      try {
+        await saveAnswer(code, attemptId, i, answersRef.current[i]);
+        unsavedRef.current = unsavedRef.current.filter((n) => n !== i);
+      } catch {
+        break;
+      }
+    }
+    try {
+      return (await saveAnswer(code, attemptId, index, text)).feedback || null;
+    } catch {
+      unsavedRef.current = [...unsavedRef.current, index];
+      return null;
+    }
+  }
+
+  function continueAfterFeedback() {
+    const { index } = feedback;
+    setFeedback(null);
+    advance(index);
   }
 
   function finishEarly() {
@@ -200,7 +297,7 @@ function AssignmentApp({ code }) {
   }
 
   if (phase === 'done') {
-    if (outcome?.feedbackMode !== 'end' || !outcome?.results) {
+    if (outcome?.feedbackMode === 'none' || !outcome?.results) {
       return (
         <div className="app-container" style={{ padding: '2rem', maxWidth: '460px', margin: '0 auto' }}>
           <div className="glass-panel animate-fade-in" style={{ textAlign: 'center' }}>
@@ -253,6 +350,9 @@ function AssignmentApp({ code }) {
       isSpeaking={audio.isSpeaking}
       warnings={warnings}
       error={audio.error}
+      feedback={feedback}
+      onContinue={continueAfterFeedback}
+      marking={marking}
     />
   );
 }

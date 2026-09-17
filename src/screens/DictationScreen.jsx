@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Volume2, Play, Flag } from 'lucide-react';
+import { Volume2, Play, Flag, Loader2 } from 'lucide-react';
 import { SPEEDS } from '../lib/options';
+import SentenceFeedback from '../components/SentenceFeedback';
 
 function preventCheatingEvents(e) {
   e.preventDefault();
@@ -21,14 +22,22 @@ function DictationScreen({
   onRateChange, // omitted in an assignment: the speed is baked into the audio
   heading = 'Dictation in Progress',
   error,
+  // Per-sentence feedback. `feedback` is `{ grade }` for the sentence just
+  // answered (grade null if it could not be marked), shown in place of the
+  // answer box until `onContinue`; `marking` is the wait for an assignment's
+  // marks to come back from the worker.
+  feedback = null,
+  onContinue,
+  marking = false,
 }) {
   const inputRef = useRef(null);
   const [confirmFinish, setConfirmFinish] = useState(false);
 
-  // Refocus the answer box whenever a new sentence starts
+  // Refocus the answer box whenever a new sentence starts — including when it
+  // comes back after a feedback panel, which took the focus for its button.
   useEffect(() => {
     if (inputRef.current) inputRef.current.focus();
-  }, [currentIndex]);
+  }, [currentIndex, feedback]);
 
   // The finish-early confirmation resets itself if not acted on
   useEffect(() => {
@@ -40,14 +49,15 @@ function DictationScreen({
   const canReplay = replaysLeft === null || replaysLeft > 0;
 
   const handleKeyDown = (e) => {
+    if (e.nativeEvent.isComposing) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (studentInput.trim()) {
+      if (!e.repeat && studentInput.trim() && !marking) {
         onSubmit();
       }
     } else if (e.key === 'r' && e.altKey) {
       e.preventDefault();
-      if (canReplay) onRepeat();
+      if (!e.repeat && canReplay) onRepeat();
     }
   };
 
@@ -105,6 +115,13 @@ function DictationScreen({
 
         {error && <div className="fetch-error" style={{ marginBottom: '1rem' }}>{error}</div>}
 
+        {feedback ? (
+          <SentenceFeedback
+            grade={feedback.grade}
+            onContinue={onContinue}
+            isLast={currentIndex + 1 >= sentenceCount}
+          />
+        ) : (
         <textarea
           ref={inputRef}
           value={studentInput}
@@ -120,7 +137,9 @@ function DictationScreen({
           autoComplete="off"
           placeholder="Type what you hear... (Press Enter to submit sentence)"
           autoFocus
+          disabled={marking}
         />
+        )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem' }}>
           <div style={{ color: warnings > 0 ? 'var(--warning-color)' : 'var(--text-muted)', fontSize: '0.9rem' }}>
@@ -130,18 +149,23 @@ function DictationScreen({
             <button
               className="btn-ghost"
               onClick={() => (confirmFinish ? onFinishEarly() : setConfirmFinish(true))}
+              disabled={marking}
               title="End the session and grade what you have so far"
             >
               <Flag size={16} /> {confirmFinish ? 'Click again to confirm' : 'Finish early'}
             </button>
-            <button
-              className="btn-primary"
-              onClick={onSubmit}
-              disabled={!studentInput.trim()}
-              title="Submit Sentence (Enter)"
-            >
-              Submit Sentence <Play size={18} />
-            </button>
+            {!feedback && (
+              <button
+                className="btn-primary"
+                onClick={onSubmit}
+                disabled={!studentInput.trim() || marking}
+                title="Submit Sentence (Enter)"
+              >
+                {marking
+                  ? <><Loader2 size={18} className="spin" /> Marking…</>
+                  : <>Submit Sentence <Play size={18} /></>}
+              </button>
+            )}
           </div>
         </div>
       </div>

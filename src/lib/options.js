@@ -28,6 +28,15 @@ export const FETCH_SUPPORTED = new Set([
   'ar-MA', 'ru-RU', 'uk-UA', 'ro-RO',
 ]);
 
+// When the student sees their marking. Shared by the practice setup screen and
+// the teacher's assignment form so the two never describe one mode two ways.
+// An assignment can additionally show nothing at all; that option is the
+// teacher's alone and lives in the form.
+export const FEEDBACK_MODES = [
+  { value: 'end', name: 'Marked answers at the end' },
+  { value: 'sentence', name: 'Each sentence marked as you go' },
+];
+
 export const REPLAY_LIMITS = [
   { value: 0, name: 'Unlimited replays' },
   { value: 1, name: '1 replay per sentence' },

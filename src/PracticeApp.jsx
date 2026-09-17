@@ -8,12 +8,13 @@ import WakingOverlay from './components/WakingOverlay';
 import { splitIntoSentences } from './lib/sentences';
 import { ttsBase } from './lib/api';
 import { lessonToPassage } from './lib/lessons';
+import { gradeSentence, DEFAULT_GRADING_OPTIONS } from './lib/grading';
 
 const SETTINGS_KEY = 'dictation.settings';
 const PASSAGE_KEY = 'dictation.passage';
 const SOURCE_KEY = 'dictation.source';
 
-const DEFAULT_SETTINGS = { lang: 'en-US', rate: 1, maxListens: 0 };
+const DEFAULT_SETTINGS = { lang: 'en-US', rate: 1, maxListens: 0, feedbackMode: 'end' };
 
 function loadSettings() {
   try {
@@ -58,6 +59,9 @@ function PracticeApp() {
   const [allStudentInput, setAllStudentInput] = useState([]);
   const [listenCounts, setListenCounts] = useState([]);
   const [warnings, setWarnings] = useState(0);
+  // Per-sentence mode only: the marked sentence just answered, shown before
+  // the next one plays.
+  const [feedback, setFeedback] = useState(null);
 
   useEffect(() => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
@@ -175,6 +179,7 @@ function PracticeApp() {
     setAllStudentInput([]);
     setListenCounts(cleanedSentences.map(() => 0));
     setWarnings(0);
+    setFeedback(null);
     setAppState('dictating');
 
     speakSentence(cleanedSentences[0]);
@@ -197,17 +202,33 @@ function PracticeApp() {
     setAppState('finished');
   };
 
-  const nextSentence = () => {
-    const newAllInput = [...allStudentInput, studentInput];
-    setStudentInput('');
-
+  const advance = (inputs) => {
     if (currentIndex + 1 < sentences.length) {
-      setAllStudentInput(newAllInput);
       setCurrentIndex(currentIndex + 1);
       speakSentence(sentences[currentIndex + 1]);
     } else {
-      finishSession(newAllInput);
+      finishSession(inputs);
     }
+  };
+
+  const nextSentence = () => {
+    const newAllInput = [...allStudentInput, studentInput];
+    setAllStudentInput(newAllInput);
+    setStudentInput('');
+
+    if (settings.feedbackMode === 'sentence') {
+      // Marked right here under the default rules — no server involved, so this
+      // works offline in the portable pack. The results screen lets the student
+      // loosen or tighten those rules afterwards, over the whole passage.
+      setFeedback({ grade: gradeSentence(sentences[currentIndex], studentInput, DEFAULT_GRADING_OPTIONS) });
+      return;
+    }
+    advance(newAllInput);
+  };
+
+  const continueAfterFeedback = () => {
+    setFeedback(null);
+    advance(allStudentInput);
   };
 
   const finishEarly = () => {
@@ -246,6 +267,8 @@ function PracticeApp() {
         warnings={warnings}
         rate={settings.rate}
         onRateChange={(rate) => setSettings({ ...settings, rate })}
+        feedback={feedback}
+        onContinue={continueAfterFeedback}
       />
     );
   } else {

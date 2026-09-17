@@ -3,6 +3,7 @@ import { CheckCircle, Volume2, RefreshCw, FilePlus2 } from 'lucide-react';
 import { gradeDictation, DEFAULT_GRADING_OPTIONS } from '../lib/grading';
 import SourceCitation from '../components/SourceCitation';
 import DiffText from '../components/DiffText';
+import DiffLegend from '../components/DiffLegend';
 import { accuracyClass } from '../lib/score';
 
 /**
@@ -88,6 +89,7 @@ function ResultsScreen({
               <button
                 key={t.key}
                 className={`chip ${options[t.key] ? 'chip-active' : ''}`}
+                aria-pressed={options[t.key]}
                 onClick={() => toggle(t.key)}
               >
                 {t.label}
@@ -126,11 +128,7 @@ function ResultsScreen({
           ))}
         </div>
 
-        <p style={{ marginTop: '1rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-          <span className="word-extra">Red</span> = what you typed, followed by{' '}
-          <span className="word-missed">green underline</span> = what it should have been. A green
-          word on its own is one you left out.
-        </p>
+        <DiffLegend />
 
         {passageSource && (
           <div style={{ marginTop: '1rem' }}>

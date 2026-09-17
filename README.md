@@ -131,9 +131,23 @@ and the word-by-word marking of any attempt. (`?teacher`, where this used to
 live, redirects there.)
 
 Creating one: **New assignment**, then fill in the form (title, class, due
-date, replays allowed, attempts, marking rules). It does one slow thing once —
-reads every sentence aloud and stores it — and then you get a six-character
-code and a link to share.
+date, replays allowed, attempts, feedback, marking rules). It does one slow
+thing once — reads every sentence aloud and stores it — and then you get a
+six-character code and a link to share.
+
+**Feedback** decides when students see their marking: their marked answers at
+the end (the default), each sentence marked the moment they submit it and then
+everything at the end, or nothing at all. Per-sentence feedback shows a
+student the sentence they have just typed, and that answer is then final —
+the worker keeps what it marked and ignores any later copy, at hand-in
+included — so there is nothing to gain from rushing through: what a
+student sees can't be typed back in for marks. Free practice also offers
+per-sentence feedback under **Feedback** on the setup screen.
+
+**Marking rules** — ignore case, ignore punctuation, ignore accents — are all
+on by default, here and in free practice: a student who heard the words and
+typed them in the wrong case has still done the dictation. Turn one off for a
+stricter test.
 
 Students open that link and sign in with **the same username and password they
 use for PinPlay**, then type what they hear.
@@ -162,7 +176,12 @@ so there is nothing to read in the page source, in storage, or in the network
 tab. Replay limits are counted server-side for the same reason: each play is a
 request, so there is no client-side counter to edit. Marking also happens on the
 worker, under the rules set at creation, so the grading toggles a student can
-use in free practice can't re-mark their own homework.
+use in free practice can't re-mark their own homework. The one time the worker
+hands over passage text before submission is per-sentence feedback, and then
+only the sentence just answered: an answer sent for a later sentence is kept
+but comes back unmarked, so the route can't be used to read ahead, and the
+first answer to any sentence is the one that counts, so a sentence once shown
+can't be answered again.
 
 Setting this up once: [cloudflare/SECRETS.md](cloudflare/SECRETS.md). It reuses
 PinPlay's student roster and teacher password, so there is one roster and one

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Play, Sparkles, Loader2, EyeOff, Eye, BookOpen, GraduationCap } from 'lucide-react';
 import { splitIntoSentences, countWords } from '../lib/sentences';
-import { SPEEDS, LANGUAGES, FETCH_SUPPORTED, REPLAY_LIMITS, languageName } from '../lib/options';
+import { SPEEDS, LANGUAGES, FETCH_SUPPORTED, REPLAY_LIMITS, FEEDBACK_MODES, languageName } from '../lib/options';
 import { hasLessons, fetchLessons } from '../lib/lessons';
 import SourceCitation from '../components/SourceCitation';
 
@@ -100,44 +100,18 @@ function SetupScreen({
                 ))}
               </select>
             </div>
-          </div>
-
-          <div className="fetch-panel">
-            <div className="fetch-panel-head">
-              <Sparkles size={18} className="fetch-panel-icon" />
-              <div>
-                <div className="fetch-panel-title">Fetch a passage</div>
-                <div className="fetch-panel-sub">
-                  {canFetch
-                    ? `A real, dated ${langName} passage from a plain-language encyclopedia — pick a length:`
-                    : `Auto-fetch isn't available for ${langName} yet.`}
-                </div>
-              </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Feedback</label>
+              <select
+                value={settings.feedbackMode || 'end'}
+                onChange={(e) => updateSetting('feedbackMode', e.target.value)}
+                style={{ width: '100%' }}
+              >
+                {FEEDBACK_MODES.map((m) => (
+                  <option key={m.value} value={m.value}>{m.name}</option>
+                ))}
+              </select>
             </div>
-            <div className="fetch-buttons">
-              <button
-                className="btn-ghost"
-                onClick={() => onFetchPassage('short')}
-                disabled={!canFetch || fetchState.loading}
-              >
-                {fetchState.loading ? <Loader2 size={16} className="spin" /> : null} Short
-              </button>
-              <button
-                className="btn-ghost"
-                onClick={() => onFetchPassage('medium')}
-                disabled={!canFetch || fetchState.loading}
-              >
-                {fetchState.loading ? <Loader2 size={16} className="spin" /> : null} Medium
-              </button>
-              <button
-                className="btn-ghost"
-                onClick={() => onFetchPassage('long')}
-                disabled={!canFetch || fetchState.loading}
-              >
-                {fetchState.loading ? <Loader2 size={16} className="spin" /> : null} Long
-              </button>
-            </div>
-            {fetchState.error && <div className="fetch-error">{fetchState.error}</div>}
           </div>
 
           {lessonsAvailable && (
@@ -181,6 +155,44 @@ function SetupScreen({
               {lessonState.error && <div className="fetch-error">{lessonState.error}</div>}
             </div>
           )}
+
+          <div className="fetch-panel">
+            <div className="fetch-panel-head">
+              <Sparkles size={18} className="fetch-panel-icon" />
+              <div>
+                <div className="fetch-panel-title">Fetch a passage</div>
+                <div className="fetch-panel-sub">
+                  {canFetch
+                    ? `A real, dated ${langName} passage from a plain-language encyclopedia — pick a length:`
+                    : `Auto-fetch isn't available for ${langName} yet.`}
+                </div>
+              </div>
+            </div>
+            <div className="fetch-buttons">
+              <button
+                className="btn-ghost"
+                onClick={() => onFetchPassage('short')}
+                disabled={!canFetch || fetchState.loading}
+              >
+                {fetchState.loading ? <Loader2 size={16} className="spin" /> : null} Short
+              </button>
+              <button
+                className="btn-ghost"
+                onClick={() => onFetchPassage('medium')}
+                disabled={!canFetch || fetchState.loading}
+              >
+                {fetchState.loading ? <Loader2 size={16} className="spin" /> : null} Medium
+              </button>
+              <button
+                className="btn-ghost"
+                onClick={() => onFetchPassage('long')}
+                disabled={!canFetch || fetchState.loading}
+              >
+                {fetchState.loading ? <Loader2 size={16} className="spin" /> : null} Long
+              </button>
+            </div>
+            {fetchState.error && <div className="fetch-error">{fetchState.error}</div>}
+          </div>
 
           <div>
             <div className="passage-label-row">

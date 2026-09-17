@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { ArrowLeft, Check, Copy, Loader2, Mic, RefreshCw } from 'lucide-react';
 import { splitIntoSentences } from '../../lib/sentences';
-import { SPEEDS, LANGUAGES, REPLAY_LIMITS } from '../../lib/options';
+import { SPEEDS, LANGUAGES, REPLAY_LIMITS, FEEDBACK_MODES } from '../../lib/options';
+import { DEFAULT_GRADING_OPTIONS } from '../../lib/grading';
 import { createAssignment, publishAssignment } from '../../lib/assignmentApi';
 import { recordSentences } from '../../lib/buildAssignment';
 import { studentLink } from '../../lib/appLinks';
@@ -25,11 +26,9 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
   const [maxListens, setMaxListens] = useState(0);
   const [attemptsLimit, setAttemptsLimit] = useState(1);
   const [feedbackMode, setFeedbackMode] = useState('end');
-  const [grading, setGrading] = useState({
-    ignoreCase: false,
-    ignorePunctuation: false,
-    ignoreAccents: false,
-  });
+  // Starts from the app-wide defaults so a new assignment marks the way free
+  // practice does unless the teacher says otherwise — one place to change, not two.
+  const [grading, setGrading] = useState({ ...DEFAULT_GRADING_OPTIONS });
 
   const [phase, setPhase] = useState('form'); // form | recording | done
   const [code, setCode] = useState('');
@@ -116,8 +115,8 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
           <Check size={44} color="var(--success-color)" style={{ margin: '0 auto 0.75rem' }} />
           <h2 style={{ fontSize: '1.6rem' }}>Assignment ready</h2>
           <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-            {sentences.length} sentence{sentences.length !== 1 ? 's' : ''} recorded. Students never
-            see the text — they hear each sentence and type it.
+            {sentences.length} sentence{sentences.length !== 1 ? 's' : ''} recorded. Students hear
+            each sentence before typing their answer.
           </p>
 
           <div className="assignment-code">{code}</div>
@@ -248,14 +247,16 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
               </select>
             </div>
             <div>
-              <label className="field-label">After submitting</label>
+              <label className="field-label">Feedback</label>
               <select
                 value={feedbackMode}
                 onChange={(e) => setFeedbackMode(e.target.value)}
                 style={{ width: '100%' }}
               >
-                <option value="end">Show their marked answers</option>
-                <option value="none">Show nothing</option>
+                {FEEDBACK_MODES.map((m) => (
+                  <option key={m.value} value={m.value}>{m.name}</option>
+                ))}
+                <option value="none">Nothing</option>
               </select>
             </div>
           </div>
@@ -271,6 +272,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
                 <button
                   key={t.key}
                   className={`chip ${grading[t.key] ? 'chip-active' : ''}`}
+                  aria-pressed={grading[t.key]}
                   onClick={() => setGrading({ ...grading, [t.key]: !grading[t.key] })}
                 >
                   {t.label}
@@ -278,7 +280,8 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
               ))}
             </div>
             <p className="field-hint">
-              Fixed when you create the assignment — students can't loosen it to re-mark themselves.
+              On by default; turn one off for stricter marking. Fixed when you create the assignment —
+              students can't loosen it to re-mark themselves.
             </p>
           </div>
 

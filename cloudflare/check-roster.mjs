@@ -1,4 +1,5 @@
-// Diagnoses a student-roster bridge without revealing anything sensitive.
+// Diagnoses the legacy Speech to IPA student-roster bridge without revealing
+// anything sensitive. Dictation uses PinPlay's Google sign-in service instead.
 //
 // Run it when student logins fail and you need to know whether the bridge is
 // the right one, the secret is wrong, or the credentials simply don't match:

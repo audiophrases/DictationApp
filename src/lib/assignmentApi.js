@@ -75,12 +75,10 @@ export function getAssignmentMeta(code) {
   return workerApi(`/api/assignments/${code}/meta`);
 }
 
-export function startAttempt(code, username, password) {
+export function startAttempt(code, studentToken) {
   return workerApi(`/api/assignments/${code}/start`, {
     method: 'POST',
-    body: { username, password },
-    // A roster lookup goes out to Apps Script, which is not always brisk.
-    timeoutMs: 25000,
+    body: { studentToken },
   });
 }
 
@@ -126,9 +124,9 @@ export function fetchAttemptResults(code, attemptId) {
 
 const attemptStorageKey = (code) => `dictation.attempt.${code}`;
 
-export function rememberAttempt(code, attemptId, username) {
+export function rememberAttempt(code, attemptId, email) {
   try {
-    localStorage.setItem(attemptStorageKey(code), JSON.stringify({ attemptId, username }));
+    localStorage.setItem(attemptStorageKey(code), JSON.stringify({ attemptId, email }));
   } catch {
     // Private mode or a full quota: resuming is a convenience, not a promise.
   }

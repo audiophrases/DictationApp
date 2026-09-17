@@ -4,6 +4,7 @@ import AssignmentGate from './screens/assignment/AssignmentGate';
 import DictationScreen from './screens/DictationScreen';
 import ResultsScreen from './screens/ResultsScreen';
 import { useAssignmentAudio } from './useAssignmentAudio';
+import { clearStudentSession, readStudentSession } from './lib/studentAuth';
 import {
   forgetAttempt,
   rememberAttempt,
@@ -96,11 +97,13 @@ function AssignmentApp({ code }) {
     [code, attemptId, stop]
   );
 
-  async function handleStart(username, password) {
+  async function handleStart() {
     setStarting(true);
     setStartError('');
     try {
-      const data = await startAttempt(code, username, password);
+      const session = readStudentSession();
+      if (!session) throw Object.assign(new Error('Please sign in with your school account again.'), { status: 401 });
+      const data = await startAttempt(code, session.studentToken);
       const count = data.meta.sentenceCount;
       const restored = Array.from({ length: count }, (_, i) => data.answers[i] ?? '');
 
@@ -109,7 +112,7 @@ function AssignmentApp({ code }) {
       setInitialListens(data.listens || {});
       setWarnings(data.warnings || 0);
       answersRef.current = restored;
-      rememberAttempt(code, data.attemptId, username);
+      rememberAttempt(code, data.attemptId, session.student.email);
 
       // Per-sentence mode: every sentence answered means every one has been
       // marked and shown, and only the hand-in was lost with the page. Redoing
@@ -131,6 +134,7 @@ function AssignmentApp({ code }) {
       setStudentInput('');
       setPhase('dictating');
     } catch (err) {
+      if (err.status === 401) clearStudentSession();
       setStartError(err.message);
     } finally {
       setStarting(false);
@@ -262,6 +266,7 @@ function AssignmentApp({ code }) {
         onStart={handleStart}
         starting={starting}
         startError={startError}
+        onIdentityChange={() => setStartError('')}
       />
     );
   }

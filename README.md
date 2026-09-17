@@ -3,7 +3,7 @@
 A dictation practice app: type what you hear, read aloud with natural neural
 voices across several languages/dialects, or auto-fetch a real practice
 passage from a plain-language encyclopedia. Teachers can also set a passage as
-an assignment: students sign in with their PinPlay logins, and the text stays
+an assignment: students sign in with the same school Google account as PinPlay, and the text stays
 hidden until they have handed their work in.
 
 ## Where the app runs
@@ -149,8 +149,11 @@ on by default, here and in free practice: a student who heard the words and
 typed them in the wrong case has still done the dictation. Turn one off for a
 stricter test.
 
-Students open that link and sign in with **the same username and password they
-use for PinPlay**, then type what they hear.
+Students open that link and **continue with Google**, using the same school
+account as PinPlay, then press **Start**. Their session is remembered on this
+device for up to 30 days; **Not you? Switch account** signs out on shared devices.
+Each app origin stores its own session, so signing into PinPlay on another
+website does not automatically sign this website in.
 
 Two pages rather than one app with a route, because a static host has no
 rewrites and because they share almost nothing: a Chromebook opening the
@@ -161,14 +164,13 @@ Nothing on the practice page points here — no link, no passage handed across.
 The practice page is what a class sees, so it carries nothing aimed at the
 teacher; typing the address is quicker than a button anyway.
 
-A student who can't get in has the same two doors as in PinPlay, linked under
-the sign-in box: **Sign up** (the Google Form that feeds your roster sheet) and
-**Forgot username/password** (the Apps Script page that identifies them by the
-school Google account they're already signed into and shows them their own
-row). Both live in [src/lib/studentAccounts.js](src/lib/studentAccounts.js) —
-set either to `''` to hide that link. Nothing about them touches this app, which
-is why there is no password-reset machinery here: the school's Google sign-in is
-the proof of identity.
+PinPlay remains the owner of the student roster. Manage students, classes and
+allowed Google accounts in **PinPlay → Students → Sign-in rules**. Dictation
+uses that same service through the `PINPLAY_AUTH` Worker binding: Google
+credentials are verified there, and every assignment start checks the session
+there. No Google client secret, session signing key or second roster is copied
+into Dictation. Verified email IDs (`usr_<email>`) preserve existing attempts
+and attempt limits, including work started before Google sign-in was added.
 
 **The passage text never reaches a student's browser until they submit.** The
 worker sends audio by sentence number and withholds the sentences themselves,
@@ -184,8 +186,9 @@ first answer to any sentence is the one that counts, so a sentence once shown
 can't be answered again.
 
 Setting this up once: [cloudflare/SECRETS.md](cloudflare/SECRETS.md). It reuses
-PinPlay's student roster and teacher password, so there is one roster and one
-password across both apps. Until a worker is configured, the assignment
+PinPlay's student roster and teacher password. The Google client must authorize
+the origin serving this app; the setup guide lists the deployment order and
+origins. Until a worker is configured, the assignment
 features simply stay switched off and free practice is unaffected.
 
 `npm run test:worker` exercises the whole flow — including the checks that the
@@ -194,8 +197,11 @@ text cannot leak early.
 ### The worker also serves Speech to IPA
 
 [Speech to IPA](https://github.com/audiophrases/speechtoipa) sets reading-aloud
-assignments through the same worker, as `app: 'ipa'`. One roster, one teacher
-password, one bucket; each dashboard lists only its own app's assignments.
+assignments through the same worker, as `app: 'ipa'`. One teacher password and
+one bucket; each dashboard lists only its own app's assignments. Google
+sessions are accepted for either app. The separate Speech to IPA frontend's
+existing username/password flow remains supported for IPA assignments only
+until that frontend is migrated; keep its legacy roster secrets meanwhile.
 
 The two flavors differ in what they can hide and who does the marking, and
 [cloudflare/worker.js](cloudflare/worker.js) branches on `record.app`

@@ -66,11 +66,37 @@ function makeBucket() {
 }
 
 const PASSWORD = 'test-teacher-pw';
+const STUDENT_TOKEN = 'verified-pinplay-session';
+const authCalls = [];
+const profile = { email: 'testkid@override.local', displayName: 'Test Kid', className: '2ESO B' };
+const authService = {
+  async fetch(request) {
+    const path = new URL(request.url).pathname;
+    const body = request.method === 'POST' ? await request.json() : null;
+    authCalls.push({ path, body, token: request.headers.get('X-Student-Token') });
+    if (path === '/api/student/config') {
+      return Response.json({ ok: true, loginEnabled: true, googleClientId: 'shared-client', allowedDomains: ['school.cat'] });
+    }
+    if (path === '/api/student/login') {
+      if (body.googleIdToken === 'wrong-school') return Response.json({ error: 'Use your school account.', reason: 'domain' }, { status: 403 });
+      if (body.googleIdToken !== 'google-credential') return Response.json({ error: 'Invalid Google sign-in.' }, { status: 401 });
+      return Response.json({ ok: true, studentToken: STUDENT_TOKEN, expiresAt: Date.now() + 60000, student: profile });
+    }
+    if (path === '/api/student/me') {
+      if (request.headers.get('X-Student-Token') !== STUDENT_TOKEN) {
+        return Response.json({ error: 'Please sign in again.', reason: 'signin' }, { status: 401 });
+      }
+      return Response.json({ ok: true, student: { ...profile, studentKey: 'do-not-trust-this-key' } });
+    }
+    return Response.json({ error: 'Unexpected auth request.' }, { status: 404 });
+  },
+};
 const env = {
   ASSIGN_BUCKET: makeBucket(),
   CREATE_PASSWORD_HASH: createHash('sha256').update(PASSWORD.normalize('NFC')).digest('hex'),
   STUDENT_LOGIN_OVERRIDE_USER: 'testkid',
   STUDENT_LOGIN_OVERRIDE_PASS: 'kidpw',
+  PINPLAY_AUTH: authService,
 };
 
 const BASE = 'https://api.test';
@@ -128,6 +154,28 @@ async function raceAttemptWrite(code, delayedRequest, winningRequest) {
     bucket.put = originalPut;
   }
 }
+
+// ----------------------------------------------------------- shared sign-in
+const config = await call('/api/student/config');
+check('Google client and school rules come from PinPlay', config.payload.googleClientId === 'shared-client'
+  && config.payload.allowedDomains[0] === 'school.cat');
+check('authentication responses are not cached', config.headers.get('Cache-Control') === 'no-store');
+check('CORS permits student session headers', config.headers.get('Access-Control-Allow-Headers').includes('X-Student-Token'));
+const login = await call('/api/student/login', { method: 'POST', body: { googleIdToken: 'google-credential', email: 'impostor@school.cat' } });
+check('Google sign-in reuses the PinPlay session', login.payload.studentToken === STUDENT_TOKEN);
+check('only the Google credential is forwarded', Object.keys(authCalls.at(-1).body).join(',') === 'googleIdToken');
+const refused = await call('/api/student/login', { method: 'POST', body: { googleIdToken: 'wrong-school' } });
+check('PinPlay school-account policy is preserved', refused.status === 403 && refused.payload.reason === 'domain');
+check('empty Google credentials are refused', (await call('/api/student/login', { method: 'POST', body: {} })).status === 400);
+env.PINPLAY_AUTH = undefined;
+check('missing auth binding fails clearly', (await call('/api/student/config')).status === 503);
+env.PINPLAY_AUTH = { fetch: async () => { throw new Error('offline'); } };
+check('unavailable auth service fails clearly', (await call('/api/student/config')).status === 503);
+env.PINPLAY_AUTH = { fetch: async () => new Response('<html>bad gateway</html>') };
+check('invalid auth responses fail closed', (await call('/api/student/config')).status === 503);
+env.PINPLAY_AUTH = { fetch: async () => Response.json({ error: 'Not found' }, { status: 404 }) };
+check('an auth service missing the new route fails clearly', (await call('/api/student/config')).status === 503);
+env.PINPLAY_AUTH = authService;
 
 // ---------------------------------------------------------------- teacher
 const wrong = await call('/api/teacher/verify', { method: 'POST', body: { password: 'nope' } });
@@ -209,14 +257,26 @@ check('meta reports the sentence count', meta.payload.meta.sentenceCount === 3);
 const badLogin = await call(`/api/assignments/${code}/start`, {
   method: 'POST', body: { username: 'testkid', password: 'wrong' },
 });
-check('wrong student password rejected', badLogin.status === 401);
+check('dictation no longer accepts student passwords', badLogin.status === 401);
+const oldLogin = await call(`/api/assignments/${code}/start`, {
+  method: 'POST', body: { username: 'testkid', password: 'kidpw' },
+});
+check('even a valid legacy password cannot start a dictation', oldLogin.status === 401);
+const invalidSession = await call(`/api/assignments/${code}/start`, {
+  method: 'POST', body: { studentToken: 'expired-or-forged', email: profile.email },
+});
+check('an invalid session cannot be replaced by a claimed email', invalidSession.status === 401);
 
 const start = await call(`/api/assignments/${code}/start`, {
-  method: 'POST', body: { username: 'testkid', password: 'kidpw' },
+  method: 'POST', body: { studentToken: STUDENT_TOKEN, username: 'Impostor', email: 'impostor@school.cat', studentKey: 'usr_impostor' },
 });
 const attemptId = start.payload.attemptId;
 check('student started an attempt', start.status === 200 && !!attemptId);
 check('start response hides the sentences', !JSON.stringify(start.payload).includes('volcano'));
+const storedStart = await (await env.ASSIGN_BUCKET.get(`assign/${code}/attempts/usr_${profile.email}/${attemptId}.json`)).json();
+check('verified email preserves the existing student key', storedStart.studentKey === `usr_${profile.email}`);
+check('name and class come from the shared roster', storedStart.studentName === profile.displayName
+  && storedStart.studentEmail === profile.email && storedStart.className === profile.className);
 
 // maxListens = 1 → first play + 1 replay = 2 allowed.
 const play1 = await call(`/api/assignments/${code}/audio/0?attemptId=${attemptId}`);
@@ -241,7 +301,7 @@ await call(`/api/assignments/${code}/warning`, { method: 'POST', body: { attempt
 
 // Resume: same student, unfinished attempt.
 const resume = await call(`/api/assignments/${code}/start`, {
-  method: 'POST', body: { username: 'testkid', password: 'kidpw' },
+  method: 'POST', body: {}, headers: { 'X-Student-Token': STUDENT_TOKEN },
 });
 check('unfinished attempt resumes', resume.payload.resumed === true && resume.payload.attemptId === attemptId);
 check('resume knows where to continue', resume.payload.nextIndex === 1, `nextIndex=${resume.payload.nextIndex}`);
@@ -269,7 +329,7 @@ const replayAfter = await call(`/api/assignments/${code}/audio/0?attemptId=${att
 check('replays are free once submitted', replayAfter.status === 200);
 
 const secondAttempt = await call(`/api/assignments/${code}/start`, {
-  method: 'POST', body: { username: 'testkid', password: 'kidpw' },
+  method: 'POST', body: { studentToken: STUDENT_TOKEN },
 });
 check('attempts limit enforced', secondAttempt.status === 403, secondAttempt.payload.error);
 
@@ -312,7 +372,7 @@ check('meta tells the app feedback is per sentence', psMeta.payload.meta.feedbac
 check('per-sentence meta still hides the sentences', !JSON.stringify(psMeta.payload).includes('volcano'));
 
 const psStart = await call(`/api/assignments/${psCode}/start`, {
-  method: 'POST', body: { username: 'testkid', password: 'kidpw' },
+  method: 'POST', body: { studentToken: STUDENT_TOKEN },
 });
 const psAttempt = psStart.payload.attemptId;
 check('per-sentence start still hides the sentences', !JSON.stringify(psStart.payload).includes('volcano'));
@@ -414,7 +474,7 @@ for (let i = 0; i < 3; i += 1) {
 }
 await call(`/api/teacher/assignments/${gapCode}/publish`, { method: 'POST', body: { password: PASSWORD } });
 const gapStart = await call(`/api/assignments/${gapCode}/start`, {
-  method: 'POST', body: { username: 'testkid', password: 'kidpw' },
+  method: 'POST', body: { studentToken: STUDENT_TOKEN },
 });
 const gapAttempt = gapStart.payload.attemptId;
 await call(`/api/assignments/${gapCode}/answer`, {
@@ -426,7 +486,7 @@ const afterGap = await call(`/api/assignments/${gapCode}/answer`, {
 });
 check('a sentence past a gap is stored but not shown', afterGap.payload.feedback === undefined);
 const gapResume = await call(`/api/assignments/${gapCode}/start`, {
-  method: 'POST', body: { username: 'testkid', password: 'kidpw' },
+  method: 'POST', body: { studentToken: STUDENT_TOKEN },
 });
 check('resume picks up at the gap', gapResume.payload.nextIndex === 1);
 check('and says which sentences really have an answer, blanks padded or not',
@@ -476,7 +536,7 @@ for (let i = 0; i < 3; i += 1) {
 }
 await call(`/api/teacher/assignments/${raceCode}/publish`, { method: 'POST', body: { password: PASSWORD } });
 const raceStart = await call(`/api/assignments/${raceCode}/start`, {
-  method: 'POST', body: { username: 'testkid', password: 'kidpw' },
+  method: 'POST', body: { studentToken: STUDENT_TOKEN },
 });
 const raceAttempt = raceStart.payload.attemptId;
 const [raceAnswer, raceAudio, raceWarning] = await Promise.all([
@@ -491,7 +551,7 @@ check('concurrent answer, listen and warning all succeed',
   `${raceAnswer.status} ${raceAudio.status} ${raceWarning.status}`);
 check('the answer was shown', raceAnswer.payload.feedback?.original === 'A volcano is a mountain.');
 const raceResume = await call(`/api/assignments/${raceCode}/start`, {
-  method: 'POST', body: { username: 'testkid', password: 'kidpw' },
+  method: 'POST', body: { studentToken: STUDENT_TOKEN },
 });
 check('and survived the concurrent writes', raceResume.payload.answers?.[0] === 'wrong',
   JSON.stringify(raceResume.payload.answers));
@@ -546,7 +606,7 @@ check('submission preserves concurrent listen and warning counts',
     && racingSubmit.payload.warnings === 1);
 
 const submitFirstStart = await call(`/api/assignments/${raceCode}/start`, {
-  method: 'POST', body: { username: 'testkid', password: 'kidpw' },
+  method: 'POST', body: { studentToken: STUDENT_TOKEN },
 });
 const submitFirstAttempt = submitFirstStart.payload.attemptId;
 const [lateAnswer, firstSubmit] = await raceAttemptWrite(raceCode,
@@ -690,7 +750,7 @@ const closed = await call('/api/teacher/assignments/status', {
 });
 check('assignment can be archived', closed.status === 200);
 const afterArchive = await call(`/api/assignments/${code}/start`, {
-  method: 'POST', body: { username: 'testkid', password: 'kidpw' },
+  method: 'POST', body: { studentToken: STUDENT_TOKEN },
 });
 check('archived assignment refuses new starts', afterArchive.status === 403);
 

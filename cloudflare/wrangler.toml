@@ -3,6 +3,11 @@ account_id = "b7cc0719d9ecb3485646785035f87ca1"
 main = "worker.js"
 compatibility_date = "2026-03-04"
 
+# PinPlay owns Google sign-in, session verification and the shared roster.
+[[services]]
+binding = "PINPLAY_AUTH"
+service = "pinplay-api"
+
 # Assignments, attempts and the pre-recorded sentence audio. A bucket of its
 # own, separate from pinplay's: the two apps share a roster and a teacher
 # password, but nothing should make one able to overwrite the other's data.

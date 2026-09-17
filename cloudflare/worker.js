@@ -9,10 +9,10 @@
 //
 // The security model, in one paragraph: the teacher holds one password
 // (SHA-256 hash in CREATE_PASSWORD_HASH, same scheme as pinplay so it can be
-// literally the same password). Students authenticate against the shared
-// Google Sheet roster that pinplay already uses, so they have nothing new to
-// remember. After a successful start, the attemptId is the capability — the
-// password is not re-checked on every keystroke, and anyone holding an
+// literally the same password). Dictation students sign in with Google through
+// PinPlay's existing authentication service and roster. After a successful
+// start, the attemptId is the capability — the Google session is not re-checked
+// on every keystroke, and anyone holding an
 // attemptId can write to that attempt. That is a deliberate classroom-grade
 // tradeoff, identical to pinplay's, and the reason nothing here is worth
 // stealing: the worst an attacker can do with a leaked attemptId is spoil one
@@ -36,7 +36,7 @@ import { splitIntoSentences } from '../src/lib/sentences.js';
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type,X-Teacher-Password',
+  'Access-Control-Allow-Headers': 'Content-Type,X-Teacher-Password,X-Student-Token',
   // The audio response reports the student's remaining replays in a header, so
   // the count on screen never needs a second round trip to stay honest.
   'Access-Control-Expose-Headers': 'X-Listens-Left',
@@ -159,10 +159,41 @@ function teacherPasswordFrom(request, body) {
 
 // --------------------------------------------------------------- student auth
 
+// The binding has a fixed target: callers cannot supply an identity provider
+// or make us send their credentials to an arbitrary URL. PinPlay owns all
+// Google verification, signing keys, enrolment and school-account rules.
+async function pinplayStudentRequest(env, path, { method = 'GET', body, token } = {}) {
+  if (!env.PINPLAY_AUTH) {
+    return { status: 503, data: { error: 'School sign-in is not configured. Ask your teacher.' } };
+  }
+  try {
+    const headers = new Headers();
+    if (body !== undefined) headers.set('Content-Type', 'application/json');
+    if (token) headers.set('X-Student-Token', token);
+    const response = await env.PINPLAY_AUTH.fetch(new Request(`https://pinplay-auth${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(12000),
+    }));
+    const data = await response.json();
+    if (!data || typeof data !== 'object' || Array.isArray(data) || response.status >= 500 || response.status === 404) {
+      throw new Error('Authentication service unavailable');
+    }
+    return { status: response.status, data };
+  } catch {
+    return { status: 503, data: { error: "School sign-in is unavailable right now. Please try again." } };
+  }
+}
+
+function studentAuthResponse({ status, data }) {
+  return json(data, status, { 'Cache-Control': 'no-store' });
+}
+
 /**
- * Verifies a student against the shared Google Sheet roster — the same bridge
- * and the same secret pinplay uses, so one roster serves every app and
- * students keep the login they already know.
+ * Legacy compatibility for Speech to IPA's existing username/password client.
+ * Dictation starts never use this path. Keep its secrets until that separate
+ * app's frontend has also switched to Google sign-in.
  *
  * Returns { email, studentKey, ok }.
  */
@@ -303,6 +334,8 @@ async function saveAssignment(env, record) {
 function attemptMetadata(attempt) {
   return {
     name: attempt.studentName,
+    email: attempt.studentEmail || '',
+    cls: attempt.className || '',
     score: String(attempt.scorePercent ?? ''),
     sub: attempt.submitted ? '1' : '0',
     warn: String(attempt.warnings || 0),
@@ -515,6 +548,8 @@ async function assignmentDetail(env, code) {
         id: parts.pop().replace('.json', ''),
         studentKey: parts.pop(),
         studentName: meta.name || '',
+        studentEmail: meta.email || '',
+        className: meta.cls || '',
         scorePercent: meta.score === '' ? null : Number(meta.score),
         submitted: meta.sub === '1',
         warnings: Number(meta.warn) || 0,
@@ -663,14 +698,37 @@ function startResponse(record, attempt, resumed) {
   });
 }
 
-async function startAttempt(env, code, body) {
+async function startAttempt(env, code, body, request) {
   const record = await getJson(env.ASSIGN_BUCKET, recordKey(code));
   if (!record || record.status === 'draft') return fail('Assignment not found.', 404);
   if (record.status !== 'active') return fail('This assignment is closed.', 403);
   if (record.dueAt && Date.now() > record.dueAt) return fail('This assignment is past its due date.', 403);
 
-  const { studentKey, ok } = await verifyStudent(env, body.username, body.password);
-  if (!ok) return fail('That username and password did not match. Please check and try again.', 401);
+  const token = String(body.studentToken || request?.headers.get('X-Student-Token') || '').trim();
+  let student;
+  if (token || record.app !== 'ipa') {
+    if (!token || token.length > 4096) {
+      return studentAuthResponse({ status: 401, data: { error: 'Please sign in with your school account.', reason: 'signin' } });
+    }
+    const verified = await pinplayStudentRequest(env, '/api/student/me', { token });
+    if (verified.status !== 200) return studentAuthResponse(verified);
+    const profile = verified.data.student;
+    const email = String(profile?.email || '').trim().toLowerCase();
+    if (!verified.data.ok || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return studentAuthResponse({ status: 503, data: { error: 'School sign-in returned an invalid response. Please try again.' } });
+    }
+    student = {
+      email,
+      studentKey: studentKeyFromEmail(email),
+      displayName: sanitizeName(profile.displayName) || email.split('@')[0],
+      className: sanitizeName(profile.className),
+    };
+  } else {
+    const legacy = await verifyStudent(env, body.username, body.password);
+    if (!legacy.ok) return fail('That username and password did not match. Please check and try again.', 401);
+    student = { ...legacy, displayName: sanitizeName(body.username), className: '' };
+  }
+  const { studentKey } = student;
 
   const existing = await listAll(env.ASSIGN_BUCKET, {
     prefix: attemptPrefix(code, studentKey),
@@ -698,7 +756,9 @@ async function startAttempt(env, code, body) {
     id: randomId('at_'),
     code,
     studentKey,
-    studentName: sanitizeName(body.username),
+    studentName: student.displayName,
+    studentEmail: student.email,
+    className: student.className,
     startedAt: now,
     updatedAt: now,
     submitted: false,
@@ -949,6 +1009,20 @@ async function route(request, env) {
   if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS });
   if (path === '/health' || path === '/') return json({ ok: true, service: 'dictation-assignments' });
 
+  if (path === '/api/student/config' && method === 'GET') {
+    return studentAuthResponse(await pinplayStudentRequest(env, '/api/student/config'));
+  }
+  if (path === '/api/student/login' && method === 'POST') {
+    const body = await readJsonBody(request);
+    const googleIdToken = typeof body.googleIdToken === 'string' ? body.googleIdToken.trim() : '';
+    if (!googleIdToken || googleIdToken.length > 16384) {
+      return studentAuthResponse({ status: 400, data: { error: 'A Google sign-in credential is required.' } });
+    }
+    return studentAuthResponse(await pinplayStudentRequest(env, '/api/student/login', {
+      method: 'POST', body: { googleIdToken },
+    }));
+  }
+
   const segments = path.split('/').filter(Boolean); // e.g. api,assignments,ABC123,meta
 
   // ---- teacher ----
@@ -1040,7 +1114,7 @@ async function route(request, env) {
     }
 
     if (method === 'POST' && action === 'start') {
-      return startAttempt(env, code, await readJsonBody(request));
+      return startAttempt(env, code, await readJsonBody(request), request);
     }
 
     if (method === 'GET' && action === 'audio') {

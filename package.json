@@ -17,9 +17,10 @@
     "test:worker": "node cloudflare/worker.test.mjs",
     "test:score": "node src/lib/score.test.mjs",
     "test:grading": "node src/lib/grading.test.mjs",
+    "test:student-auth": "node --test src/lib/studentAuth.test.mjs",
     "test:dictation": "node server/dictation.test.mjs",
     "test:sentences": "node src/lib/sentences.test.mjs",
-    "test": "npm run test:sentences && npm run test:score && npm run test:grading && npm run test:dictation && npm run test:worker"
+    "test": "npm run test:sentences && npm run test:score && npm run test:grading && npm run test:student-auth && npm run test:dictation && npm run test:worker"
   },
   "dependencies": {
     "diff": "^9.0.0",

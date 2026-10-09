@@ -643,25 +643,88 @@ input:focus {
   color: var(--primary-color);
 }
 
-/* Grading option chips */
-.chip {
-  background: transparent;
-  color: var(--text-muted);
+/* Marking rules: one row per rule, both answers always visible, the chosen
+   one filled in. Real radio inputs underneath, so arrow keys and screen
+   readers work without extra code. */
+.marking-rules {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.rule-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.65rem 0.85rem;
   border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  background: var(--surface-sunken);
+}
+
+.rule-name {
+  font-weight: 600;
+}
+
+.rule-example {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}
+
+.rule-example svg {
+  flex-shrink: 0;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
   border-radius: 999px;
-  padding: 0.4rem 1rem;
+  background: var(--subtle-fill);
+  border: 1px solid var(--glass-border);
+}
+
+.segmented label {
+  position: relative;
+  cursor: pointer;
+}
+
+/* Hidden but still focusable and announced; the span is what shows. */
+.segmented input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.segmented span {
+  display: block;
+  min-width: 4.5rem;
+  text-align: center;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
   font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
 }
 
-.chip:hover:not(:disabled) {
-  border-color: var(--text-muted);
+.segmented label:hover span {
   color: var(--text-color);
 }
 
-.chip-active {
-  background: rgba(59, 130, 246, 0.2);
-  border-color: var(--primary-color);
-  color: var(--text-color);
+.segmented input:checked + span {
+  background: var(--primary-color);
+  color: white;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+}
+
+.segmented input:focus-visible + span {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
 }
 
 /* Results: big score + stats */
@@ -736,17 +799,197 @@ input:focus {
   line-height: 1.8;
 }
 
-/* Diff highlighting */
-.word-missed {
-  color: var(--success-color);
-  text-decoration: underline;
-  background-color: rgba(16, 185, 129, 0.1);
-  border-radius: 4px;
+/* Marked sentence (DiffText). Right words are plain text; each mistake is a
+   tile whose first line sits on the sentence's baseline, so the sentence
+   still reads straight across, with a small note hanging underneath. */
+.marked-sentence {
+  display: block;
+  line-height: 2.5;
 }
 
-.word-extra {
+.mark-tile {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.05rem 0.4rem 0.1rem;
+  border-radius: 8px;
+  border: 1.5px solid transparent;
+  line-height: 1.4;
+  animation: tilePop 0.35s ease both;
+  animation-delay: calc(var(--i, 0) * 60ms + 0.15s);
+}
+
+.mark-main {
+  font-weight: 600;
+}
+
+.mark-note {
+  font-size: 0.72em;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--text-muted);
+}
+
+.mark-wrong {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.mark-wrong .mark-main,
+.mark-missing .mark-main {
+  color: var(--success-color);
+}
+
+.mark-typed {
   color: var(--danger-color);
-  background-color: rgba(239, 68, 68, 0.1);
-  padding: 0 2px;
-  border-radius: 4px;
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  font-size: 0.8em;
+}
+
+.mark-missing {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1.5px dashed var(--success-color);
+}
+
+.mark-extra {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.mark-extra .mark-main {
+  color: var(--danger-color);
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+
+@keyframes tilePop {
+  from { opacity: 0; transform: translateY(4px) scale(0.92); }
+  to { opacity: 1; transform: none; }
+}
+
+.mark-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.mark-legend .mark-sample {
+  flex-shrink: 0;
+  font-size: 0.95rem;
+  animation: none;
+}
+
+/* Per-sentence feedback card: a verdict and a score ring up top, tinted by
+   how the sentence went, then the marked sentence itself. */
+.feedback-card {
+  border-width: 1px 1px 1px 4px;
+  padding: 1.1rem 1.25rem;
+}
+
+.feedback-badge-good { border-left-color: var(--success-color); }
+.feedback-badge-ok { border-left-color: var(--warning-color); }
+.feedback-badge-poor { border-left-color: var(--danger-color); }
+
+.feedback-head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.feedback-verdict {
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.feedback-sub {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.feedback-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.feedback-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+}
+
+.pill-wrong,
+.pill-extra {
+  color: var(--danger-color);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.pill-missing {
+  color: var(--success-color);
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.feedback-body {
+  font-size: 1.15rem;
+}
+
+.score-ring {
+  position: relative;
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+}
+
+/* Starts the fill at twelve o'clock. Direct child only, so the tick icon in
+   the label isn't turned on its side too. */
+.score-ring > svg {
+  transform: rotate(-90deg);
+}
+
+.score-ring circle {
+  fill: none;
+  stroke-width: 6;
+}
+
+.score-ring-track {
+  stroke: var(--subtle-fill);
+}
+
+.score-ring-fill {
+  stroke: currentColor;
+  stroke-linecap: round;
+  animation: ringFill 0.7s ease-out both;
+}
+
+/* Only a start point: the end is the inline dashoffset, i.e. the score. */
+@keyframes ringFill {
+  from { stroke-dashoffset: var(--ring-length); }
+}
+
+.score-ring-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mark-tile,
+  .score-ring-fill {
+    animation: none;
+  }
 }

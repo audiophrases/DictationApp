@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { getAttempt } from '../../lib/assignmentApi';
 import DiffText from '../../components/DiffText';
+import DiffLegend from '../../components/DiffLegend';
 import { accuracyClass } from '../../lib/score';
 
 function AttemptDetail({ code, attempt, onBack }) {
@@ -79,7 +80,7 @@ function AttemptDetail({ code, attempt, onBack }) {
                     </span>
                   </div>
                   <div className="sentence-card-body">
-                    <DiffText segments={s.segments} />
+                    <DiffText segments={s.segments} typedBy="The student" />
                   </div>
                   {!s.typed.trim() && (
                     <p className="field-hint">No answer typed for this sentence.</p>
@@ -88,11 +89,7 @@ function AttemptDetail({ code, attempt, onBack }) {
               ))}
             </div>
 
-            <p style={{ marginTop: '1rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              <span className="word-extra">Red</span> = what the student typed, followed by{' '}
-              <span className="word-missed">green underline</span> = what it should have been. A
-              green word on its own was left out.
-            </p>
+            <DiffLegend typedBy="the student" />
           </>
         ) : null}
       </div>

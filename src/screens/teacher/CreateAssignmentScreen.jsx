@@ -6,6 +6,7 @@ import { DEFAULT_GRADING_OPTIONS } from '../../lib/grading';
 import { createAssignment, publishAssignment } from '../../lib/assignmentApi';
 import { recordSentences } from '../../lib/buildAssignment';
 import { studentLink } from '../../lib/appLinks';
+import MarkingRules from '../../components/MarkingRules';
 
 // A date input gives a day, and homework is due at the end of that day rather
 // than at midnight as it starts.
@@ -263,25 +264,11 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
 
           <div>
             <label className="field-label">Marking</label>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              {[
-                { key: 'ignoreCase', label: 'Ignore case' },
-                { key: 'ignorePunctuation', label: 'Ignore punctuation' },
-                { key: 'ignoreAccents', label: 'Ignore accents' },
-              ].map((t) => (
-                <button
-                  key={t.key}
-                  className={`chip ${grading[t.key] ? 'chip-active' : ''}`}
-                  aria-pressed={grading[t.key]}
-                  onClick={() => setGrading({ ...grading, [t.key]: !grading[t.key] })}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
+            <MarkingRules value={grading} onChange={setGrading} />
             <p className="field-hint">
-              On by default; turn one off for stricter marking. Fixed when you create the assignment —
-              students can't loosen it to re-mark themselves.
+              All three are ignored by default, so only the words count. Choose Check for a
+              spelling-focused task. Fixed when you create the assignment — students can't loosen
+              it to re-mark themselves.
             </p>
           </div>
 

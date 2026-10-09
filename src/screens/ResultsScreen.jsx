@@ -4,6 +4,7 @@ import { gradeDictation, DEFAULT_GRADING_OPTIONS } from '../lib/grading';
 import SourceCitation from '../components/SourceCitation';
 import DiffText from '../components/DiffText';
 import DiffLegend from '../components/DiffLegend';
+import MarkingRules from '../components/MarkingRules';
 import { accuracyClass } from '../lib/score';
 
 /**
@@ -40,15 +41,8 @@ function ResultsScreen({
   );
   const grade = providedGrade || localGrade;
 
-  const toggle = (key) => setOptions({ ...options, [key]: !options[key] });
   const percent = Math.round(grade.accuracy * 100);
   const totalReplays = listenCounts.reduce((a, b) => a + b, 0);
-
-  const toggles = [
-    { key: 'ignoreCase', label: 'Ignore case' },
-    { key: 'ignorePunctuation', label: 'Ignore punctuation' },
-    { key: 'ignoreAccents', label: 'Ignore accents' },
-  ];
 
   return (
     <div className="app-container" style={{ padding: '2rem', maxWidth: '800px', margin: '0 auto' }}>
@@ -84,17 +78,8 @@ function ResultsScreen({
         </div>
 
         {!providedGrade && (
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center', margin: '1.5rem 0' }}>
-            {toggles.map((t) => (
-              <button
-                key={t.key}
-                className={`chip ${options[t.key] ? 'chip-active' : ''}`}
-                aria-pressed={options[t.key]}
-                onClick={() => toggle(t.key)}
-              >
-                {t.label}
-              </button>
-            ))}
+          <div style={{ margin: '1.5rem 0' }}>
+            <MarkingRules value={options} onChange={setOptions} />
           </div>
         )}
 

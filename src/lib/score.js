@@ -8,31 +8,53 @@ export function accuracyClass(accuracy) {
 }
 
 /**
- * Puts a substitution in the order a teacher marks one: the mistake first, then
- * the correction after it.
+ * Turns a sentence's diff into the tiles the marked sentence is drawn from,
+ * the way a teacher corrects on paper: the sentence reads in its own order,
+ * and each mistake carries the right word with what the student wrote under it.
  *
- * The diff emits the original word before the typed one, which reads backwards
- * on screen — "Lava lava" looks like the correction is being repeated wrongly,
- * rather than "lava" being wrong and "Lava" being the fix. Swapping each
- * missed/extra pair gives "lava Lava": what the student wrote, then what it
- * should have been.
+ *  - right:   { expected }          a word reproduced
+ *  - wrong:   { expected, typed }   a word replaced by something else
+ *  - missing: { expected }          a word left out
+ *  - extra:   { typed }             a word typed that isn't in the sentence
  *
- * Presentation only, so it also fixes attempts already stored in R2 — their
- * segments keep the diff's own order.
+ * A substitution is a missed run followed by a typed one. When the two runs
+ * are the same length they are paired word by word ("cat sat" → "dog sit"
+ * reads as two fixes, not one); otherwise there is no telling which word
+ * replaced which, so the runs stay together as one tile.
+ *
+ * Presentation only, so it applies to attempts already stored in R2 as well.
  */
-export function orderForReview(segments) {
-  const ordered = [];
+export function reviewTiles(segments) {
+  const tiles = [];
   for (let i = 0; i < segments.length; i += 1) {
     const current = segments[i];
     const next = segments[i + 1];
-    // A run of correct words never moves; only a missed word immediately
-    // replaced by a typed one is a substitution worth reordering.
     if (current.type === 'missed' && next?.type === 'extra') {
-      ordered.push(next, current);
+      if (current.words.length === next.words.length) {
+        current.words.forEach((word, j) => tiles.push({ kind: 'wrong', expected: word, typed: next.words[j] }));
+      } else {
+        tiles.push({ kind: 'wrong', expected: current.words.join(' '), typed: next.words.join(' ') });
+      }
       i += 1;
+    } else if (current.type === 'missed') {
+      current.words.forEach((word) => tiles.push({ kind: 'missing', expected: word }));
+    } else if (current.type === 'extra') {
+      current.words.forEach((word) => tiles.push({ kind: 'extra', typed: word }));
     } else {
-      ordered.push(current);
+      current.words.forEach((word) => tiles.push({ kind: 'right', expected: word }));
     }
   }
-  return ordered;
+  return tiles;
+}
+
+const wordCount = (text) => (text ? text.split(' ').length : 0);
+
+// How many of the sentence's words fell into each kind of tile. Counted in
+// words, not tiles, so a grouped substitution counts every word it replaced.
+export function reviewSummary(tiles) {
+  const counts = { right: 0, wrong: 0, missing: 0, extra: 0 };
+  for (const tile of tiles) {
+    counts[tile.kind] += wordCount(tile.kind === 'extra' ? tile.typed : tile.expected);
+  }
+  return counts;
 }

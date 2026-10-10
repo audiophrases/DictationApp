@@ -4,21 +4,8 @@ import { cacheKey, getOrSynthesize } from './ttsCache.js';
 // Extracted from vite.config.js so the exact same handler can run under the
 // Vite dev/preview server (local development) AND the standalone production
 // server (server/serve.js) used by the local .bat launcher and by Render.
-export const VOICES = {
-  'en-US': 'en-US-JennyNeural',
-  'ca-ES': 'ca-ES-JoanaNeural',
-  'fr-FR': 'fr-FR-DeniseNeural',
-  'es-ES': 'es-ES-ElviraNeural',
-  'de-DE': 'de-DE-KatjaNeural',
-  'it-IT': 'it-IT-ElsaNeural',
-  'pt-PT': 'pt-PT-RaquelNeural',
-  'ar-MA': 'ar-MA-MounaNeural',
-  'ru-RU': 'ru-RU-SvetlanaNeural',
-  'uk-UA': 'uk-UA-PolinaNeural',
-  'ro-RO': 'ro-RO-AlinaNeural',
-};
-
-const DEFAULT_VOICE = VOICES['en-US'];
+import { VOICES, resolveVoice } from './ttsVoices.js';
+export { VOICES };
 
 // A single sentence is all this ever needs to say. The endpoint is unauthenticated
 // on a public deploy, so cap the input rather than forwarding anything upstream
@@ -61,7 +48,7 @@ export async function handleTTSRequest(req, res) {
       return;
     }
 
-    const voice = VOICES[lang] || DEFAULT_VOICE;
+    const voice = resolveVoice(lang, url.searchParams.get('voice'));
 
     // Repeats — a replay, the next student on the same passage, the same lesson
     // tomorrow — are served from the cache without touching the network.

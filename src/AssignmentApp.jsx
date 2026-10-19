@@ -4,7 +4,7 @@ import AssignmentGate from './screens/assignment/AssignmentGate';
 import DictationScreen from './screens/DictationScreen';
 import ResultsScreen from './screens/ResultsScreen';
 import NotebookScreen from './screens/NotebookScreen';
-import { NotebookSubmission, NotebookCorrections } from './screens/NotebookSubmission';
+import NotebookCompletion from './screens/NotebookCompletion';
 import { useAssignmentAudio } from './useAssignmentAudio';
 import { clearStudentSession, readStudentSession } from './lib/studentAuth';
 import {
@@ -89,8 +89,7 @@ function AssignmentApp({ code }) {
         // per-sentence saves during the dictation are only insurance against a
         // crash; this is the copy that gets marked (per-sentence mode aside,
         // where the worker keeps what it already marked and this fills gaps).
-        const result = await submitAttempt(code, id, finalAnswers,
-          meta?.mode === 'notebook' ? { classroomSubmitted: true } : {});
+        const result = await submitAttempt(code, id, finalAnswers);
         if (meta?.mode !== 'notebook') forgetAttempt(code);
         setOutcome(result);
         setPhase('done');
@@ -287,7 +286,7 @@ function AssignmentApp({ code }) {
         <div className="glass-panel animate-fade-in" style={{ textAlign: 'center' }}>
           {submitError ? (
             <>
-              <h2 style={{ fontSize: '1.3rem' }}>Couldn't hand this in</h2>
+              <h2 style={{ fontSize: '1.3rem' }}>{meta?.mode === 'notebook' ? "Couldn't finish this dictation" : "Couldn't hand this in"}</h2>
               <p style={{ color: 'var(--text-muted)', marginTop: '0.75rem' }}>{submitError}</p>
               <p className="field-hint">
                 Your work is still here — don't close this page.
@@ -303,7 +302,7 @@ function AssignmentApp({ code }) {
           ) : (
             <>
               <Loader2 size={26} className="spin" style={{ color: 'var(--text-muted)' }} />
-              <p style={{ marginTop: '0.75rem', color: 'var(--text-muted)' }}>Handing in your work…</p>
+              <p style={{ marginTop: '0.75rem', color: 'var(--text-muted)' }}>{meta?.mode === 'notebook' ? 'Finishing your dictation…' : 'Handing in your work…'}</p>
             </>
           )}
         </div>
@@ -312,7 +311,7 @@ function AssignmentApp({ code }) {
   }
 
   if (phase === 'done') {
-    if (meta?.mode === 'notebook') return <NotebookCorrections outcome={outcome}
+    if (meta?.mode === 'notebook') return <NotebookCompletion outcome={outcome}
       onRefresh={async () => setOutcome(await fetchAttemptResults(code, attemptId))} />;
     if (outcome?.feedbackMode === 'none' || !outcome?.results) {
       return (
@@ -353,9 +352,6 @@ function AssignmentApp({ code }) {
     );
   }
 
-  if (phase === 'photo') return <NotebookSubmission classroomUrl={meta.classroomUrl}
-    onSubmit={() => finish([])} onBack={() => { endedRef.current = false; setPhase('dictating'); }} />;
-
   if (meta?.mode === 'notebook') {
     return <NotebookScreen heading={meta.title} count={meta.sentenceCount} index={currentIndex}
       onMove={(index) => {
@@ -365,7 +361,7 @@ function AssignmentApp({ code }) {
         if (audio.replaysLeftFor(index) === null || audio.replaysLeftFor(index) > 0) play(index, { replay: true });
       }}
       onRepeat={() => play(currentIndex, { replay: true })}
-      onFinish={() => { stop(); setPhase('photo'); }}
+      onFinish={() => finish([])}
       isSpeaking={audio.isSpeaking} replaysLeft={audio.replaysLeftFor(currentIndex)} error={audio.error} />;
   }
 

@@ -5,7 +5,7 @@ import SetupScreen from './screens/SetupScreen';
 import DictationScreen from './screens/DictationScreen';
 import ResultsScreen from './screens/ResultsScreen';
 import NotebookScreen from './screens/NotebookScreen';
-import { NotebookSubmission, NotebookCorrections } from './screens/NotebookSubmission';
+import NotebookCompletion from './screens/NotebookCompletion';
 import { prepareNotebook } from './lib/notebookAudio';
 import WakingOverlay from './components/WakingOverlay';
 import { splitIntoSentences } from './lib/sentences';
@@ -289,11 +289,8 @@ function PracticeApp() {
       {appState === 'ready' && <button className="btn-primary" onClick={() => { setAppState('dictating'); playNotebook(0); }}>Start notebook dictation</button>}
       {prepareError && <><button className="btn-primary" onClick={startDictation}>Try again</button><button className="btn-ghost" onClick={() => setAppState('setup')}>Back to setup</button></>}
     </div></div>;
-  } else if (appState === 'photo') {
-    screen = <NotebookSubmission classroomUrl={settings.classroomUrl} onSubmit={() => setAppState('finished')}
-      onBack={() => setAppState('dictating')} />;
   } else if (appState === 'finished' && settings.mode === 'notebook') {
-    screen = <NotebookCorrections outcome={{ correctionsReleased: false }} onNewPassage={() => setAppState('setup')} />;
+    screen = <NotebookCompletion outcome={{ correctionsReleased: false }} onNewPassage={() => setAppState('setup')} />;
   } else if (appState === 'finished') {
     screen = (
       <ResultsScreen
@@ -310,7 +307,7 @@ function PracticeApp() {
   } else if (appState === 'dictating' && settings.mode === 'notebook') {
     screen = <NotebookScreen count={sentences.length} index={currentIndex}
       onMove={(index) => { setCurrentIndex(index); playNotebook(index); }}
-      onRepeat={() => playNotebook(currentIndex)} onFinish={() => { stopNotebook(); setAppState('photo'); }}
+      onRepeat={() => playNotebook(currentIndex)} onFinish={() => { stopNotebook(); setAppState('finished'); }}
       isSpeaking={notebookSpeaking} replaysLeft={null} error={notebookError} />;
   } else if (appState === 'dictating') {
     screen = (

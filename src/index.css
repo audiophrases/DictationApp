@@ -3,9 +3,6 @@
 .notebook-container { padding: 2rem; max-width: 800px; width: 100%; margin: 0 auto; }
 .notebook-panel { display: flex; flex-direction: column; align-items: center; gap: 1.25rem; text-align: center; }
 .notebook-controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.75rem; }
-.notebook-confirm { display: flex; align-items: flex-start; gap: 0.75rem; text-align: left; }
-.notebook-confirm input { width: auto; flex-shrink: 0; margin-top: 0.4rem; }
-.notebook-photo { max-width: 100%; max-height: 480px; border-radius: 8px; object-fit: contain; }
 .notebook-corrections { white-space: pre-wrap; text-align: left; line-height: 2; padding: 1.5rem; background: var(--surface-sunken); border-radius: 8px; width: 100%; }
 kbd { font: inherit; font-size: 0.8em; padding: 0.15rem 0.4rem; border: 1px solid currentColor; border-radius: 4px; }
 

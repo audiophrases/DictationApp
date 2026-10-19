@@ -7,6 +7,7 @@
 // loudly if that ever happens.
 import worker from './worker.js';
 import { createHash } from 'node:crypto';
+import { notebookPlan } from '../src/lib/notebook.js';
 
 function makeBucket() {
   const objects = new Map();
@@ -713,19 +714,35 @@ check('teacher sees per-sentence reading results',
 
 // -------------------------------------------------------- notebook workflow
 const notebookText = 'When the sun rose over the quiet village, the children packed their bags for school, and their parents walked with them to the old stone bridge.';
+const notebookSegments = notebookPlan(notebookText, 'en-US').flatMap((part) => part.segments);
 const notebookCreate = await call('/api/teacher/assignments/create', {
   method: 'POST', body: { password: PASSWORD, mode: 'notebook', text: notebookText,
-    classroomUrl: 'https://classroom.google.com/c/test/a/work', feedbackMode: 'sentence' },
+    notebookSegments, feedbackMode: 'sentence' },
 });
 const nbCode = notebookCreate.payload.code;
-check('notebook mode divides a long sentence into comma segments', notebookCreate.status === 200 && notebookCreate.payload.sentences?.length === 3);
-check('notebook feedback always waits for teacher release', notebookCreate.payload.record?.feedbackMode === 'release');
-const badClassroom = await call('/api/teacher/assignments/create', {
-  method: 'POST', body: { password: PASSWORD, mode: 'notebook', text: notebookText, classroomUrl: 'javascript:alert(1)' },
+check('notebook stores the smaller phrase segments supplied by the teacher', notebookCreate.status === 200
+  && JSON.stringify(notebookCreate.payload.sentences) === JSON.stringify(notebookSegments));
+const changedPlan = await call('/api/teacher/assignments/create', {
+  method: 'POST', body: { password: PASSWORD, mode: 'notebook', text: notebookText,
+    notebookSegments: ['The passage changed.'] },
 });
-check('notebook creation refuses unsafe or missing Classroom links', badClassroom.status === 400);
+check('notebook rejects a phrase plan that drops or changes text', changedPlan.status === 400);
+const manyPhrases = Array(61).fill('A short phrase.');
+const largerNotebook = await call('/api/teacher/assignments/create', {
+  method: 'POST', body: { password: PASSWORD, mode: 'notebook', text: manyPhrases.join(' '),
+    notebookSegments: manyPhrases },
+});
+check('smaller phrases can exceed the typed assignment limit of 60 items', largerNotebook.status === 200 && largerNotebook.payload.sentences?.length === 61);
+await call('/api/teacher/assignments/delete', { method: 'POST', body: { password: PASSWORD, code: largerNotebook.payload.code } });
+const tooManyPhrases = Array(241).fill('A short phrase.');
+const tooLargeNotebook = await call('/api/teacher/assignments/create', {
+  method: 'POST', body: { password: PASSWORD, mode: 'notebook', text: tooManyPhrases.join(' '),
+    notebookSegments: tooManyPhrases },
+});
+check('notebook phrase count remains bounded at 240', tooLargeNotebook.status === 400 && tooLargeNotebook.payload.error.includes('240'));
+check('notebook feedback always waits for teacher release', notebookCreate.payload.record?.feedbackMode === 'release');
 const oversizedNotebook = await call('/api/teacher/assignments/create', {
-  method: 'POST', body: { password: PASSWORD, mode: 'notebook', text: 'word '.repeat(610), classroomUrl: 'https://classroom.google.com/c/test/a/work' },
+  method: 'POST', body: { password: PASSWORD, mode: 'notebook', text: 'word '.repeat(610) },
 });
 check('oversized sentences are rejected before creating an unrecordable notebook draft', oversizedNotebook.status === 400 && oversizedNotebook.payload.error.includes('3000'));
 for (let i = 0; i < notebookCreate.payload.sentences.length; i++) {
@@ -742,9 +759,8 @@ const nbAudio = await call(`/api/assignments/${nbCode}/audio/0?attemptId=${nbId}
 check('notebook WAV segments retain the right playback type', nbAudio.status === 200 && nbAudio.headers.get('Content-Type') === 'audio/wav');
 const nbAnswer = await call(`/api/assignments/${nbCode}/answer`, { method: 'POST', body: { attemptId: nbId, index: 0, text: '' } });
 check('notebook progress never returns sentence feedback', nbAnswer.status === 200 && !nbAnswer.payload.feedback);
-const nbNoConfirm = await call(`/api/assignments/${nbCode}/submit`, { method: 'POST', body: { attemptId: nbId, answers: [] } });
-check('notebook hand-in requires Classroom confirmation', nbNoConfirm.status === 400);
-const nbSubmit = await call(`/api/assignments/${nbCode}/submit`, { method: 'POST', body: { attemptId: nbId, classroomSubmitted: true } });
+const nbSubmit = await call(`/api/assignments/${nbCode}/submit`, { method: 'POST', body: { attemptId: nbId, answers: [] } });
+check('notebook completion needs no external confirmation', nbSubmit.status === 200);
 check('notebook hand-in returns no feedback or automatic grade', nbSubmit.status === 200 && !nbSubmit.payload.corrections && !nbSubmit.payload.results && !('scorePercent' in nbSubmit.payload));
 const nbWaiting = await call(`/api/assignments/${nbCode}/results?attemptId=${nbId}`);
 check('submitted notebook still withholds corrections before release', nbWaiting.status === 200 && !nbWaiting.payload.corrections && !nbWaiting.payload.correctionsReleased);
@@ -755,7 +771,7 @@ check('teacher release reveals the original passage for handwritten corrections'
 const nbMeta = await call(`/api/assignments/${nbCode}/meta`);
 check('public notebook metadata never includes the released text', !JSON.stringify(nbMeta.payload).includes('village'));
 const nbDetail = await call('/api/teacher/attempts/get', { method: 'POST', body: { password: PASSWORD, code: nbCode, studentKey: 'usr_testkid@override.local', attemptId: nbId } });
-check('teacher sees notebook submission confirmation without a false zero score', nbDetail.payload.results === null && nbDetail.payload.attempt.scorePercent === null && !!nbDetail.payload.attempt.classroomSubmittedAt);
+check('teacher sees notebook completion without a false zero score', nbDetail.payload.results === null && nbDetail.payload.attempt.scorePercent === null && !!nbDetail.payload.attempt.submittedAt);
 await call('/api/teacher/assignments/status', { method: 'POST', body: { password: PASSWORD, code: nbCode, status: 'archived' } });
 const nbResume = await call(`/api/assignments/${nbCode}/start`, { method: 'POST', body: { studentToken: STUDENT_TOKEN } });
 check('signed-in student can reopen corrections after assignment is archived', nbResume.status === 200 && nbResume.payload.submitted && nbResume.payload.outcome?.corrections === notebookText);

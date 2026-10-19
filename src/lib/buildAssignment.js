@@ -39,18 +39,23 @@ async function synthesize(text, lang, rate) {
  */
 export async function recordSentences(code, sentences, { lang, rate, only, onSettled, mode, text }) {
   if (mode === 'notebook') {
+    const plan = notebookPlan(text, lang);
+    if (JSON.stringify(plan.flatMap((part) => part.segments)) !== JSON.stringify(sentences)) {
+      throw new Error('The assignment server uses a different segment plan. Update it and create the assignment again.');
+    }
     const context = new AudioContext({ sampleRate: 24000 });
     const wanted = new Set(only || sentences.map((_, i) => i));
     const failed = [];
+    const cueCache = new Map();
     let offset = 0;
     try {
-      for (const part of notebookPlan(text)) {
+      for (const part of plan) {
         const indexes = part.segments.map((_, i) => offset + i).filter((i) => wanted.has(i));
         offset += part.segments.length;
         if (!indexes.length) continue;
         let clips;
         try {
-          clips = await prepareNotebookSentence(part.sentence, { lang, rate, context });
+          clips = await prepareNotebookSentence(part.sentence, { lang, rate, context, cueCache });
         } catch (error) {
           for (const index of indexes) { failed.push(index); onSettled?.(index, error); }
           continue;

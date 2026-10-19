@@ -130,31 +130,33 @@ Choose **Notebook — write by hand** in practice or when creating an assignment
 Students hear segments without an answer box or automatic feedback:
 
 - **Space** repeats the current segment.
-- **Enter** advances to the next segment; on the last one it opens the photo step.
+- **Enter** advances to the next segment; on the last one it finishes the dictation.
 - **Left / Right arrows** move backward / forward and play that segment.
 
 The app records complete sentences with the existing natural neural voices
-first, then uses word timings to cut the recordings. Sentences of up to 18
-words stay whole; longer sentences prefer commas and other punctuation pauses,
-with word boundaries as a fallback for long clauses. Segments retain the
-original recording's phrasing. Recording failures can be retried before publishing.
+first, then uses word timings to cut the recordings into short phrases, usually
+2–7 words. English uses part-of-speech tagging to identify subjects, verb
+phrases and prepositional phrases: “The quick brown fox / jumps over the lazy
+dog.” Other languages use punctuation and a bounded word-count fallback.
+Words are never dropped or repeated. Segments retain the original recording's
+phrasing. Recording failures can be retried before publishing.
 
-For an assignment, the teacher supplies a Google Classroom assignment link.
-Students photograph their notebook pages, attach the photos in Classroom and
-press **Turn in**, then confirm submission here. The optional camera/file picker
-provides a preview and a download; it does **not** upload to Classroom. Photos
-can also be taken and submitted on a separate phone. There is no Classroom API
-integration, and the app records the student's confirmation rather than verifying
-Classroom's submission status.
+The last segment of each sentence includes a separate spoken punctuation cue
+after a short pause: **“period”**, **“question mark”** or **“exclamation mark”**
+(localized to the selected language). Replaying repeats both the phrase and
+the cue as one clip. Cues are never added to the passage or correction text.
+Notebook assignments allow up to 240 segments; typed assignments retain their
+60-sentence limit. The teacher browser supplies the phrase plan, and the Worker
+checks that it preserves the complete original passage before storing it.
 
-Teachers review the photos in Classroom and choose **Release corrections to
-students** on the assignment detail page. Only submitted students can retrieve
-the passage, then correct their notebooks by hand. They can check for corrections
-or reopen the link using the same school account, even after the due date or
-archiving. Notebook work receives no automatic score. Each notebook assignment
-has one submission per student. Free practice has the same listening and photo
-flow; its teacher shares corrections separately. Use an assignment for release
-control inside the app.
+Students choose **Finish writing** when they are done. For assignments, the app
+records completion and waits for the teacher to choose **Release corrections to
+students** on the assignment detail page. Only students who have finished can
+retrieve the passage, then correct their notebooks by hand. They can check for
+corrections or reopen the link using the same school account, even after the due
+date or archiving. Notebook work receives no automatic score. Each notebook
+assignment has one completion per student. Free practice ends with a simple
+completion screen. Use an assignment for correction release inside the app.
 
 Notebook assignments require the updated frontend, Node voice server (word
 timings), and Cloudflare Worker (WAV playback and correction release).

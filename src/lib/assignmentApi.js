@@ -106,10 +106,10 @@ export function reportWarning(code, attemptId) {
   });
 }
 
-export function submitAttempt(code, attemptId, answers, extra = {}) {
+export function submitAttempt(code, attemptId, answers) {
   return workerApi(`/api/assignments/${code}/submit`, {
     method: 'POST',
-    body: { attemptId, answers, ...extra },
+    body: { attemptId, answers },
     timeoutMs: 25000,
   });
 }

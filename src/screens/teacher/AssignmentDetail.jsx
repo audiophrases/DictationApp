@@ -76,9 +76,8 @@ function AssignmentDetail({ code, onBack, onOpenAttempt }) {
           <>
             {record.mode === 'notebook' && <div className="sentence-card" style={{ marginBottom: '1.5rem' }}>
               <h2 style={{ fontSize: '1.1rem' }}>Notebook corrections</h2>
-              <p className="field-hint">Check the photos in Classroom before releasing the passage. Submitted students can then reopen this assignment to correct their notebooks.</p>
+              <p className="field-hint">Release the passage when students are ready to correct their notebooks. Students who have finished can reopen this assignment to see it.</p>
               <div className="notebook-controls" style={{ justifyContent: 'flex-start', marginTop: '1rem' }}>
-                <a className="btn-ghost" href={record.classroomUrl} target="_blank" rel="noopener noreferrer">Open Classroom</a>
                 <button className="btn-primary" disabled={releasing || record.correctionsReleased || record.status === 'draft'} onClick={async () => {
                   setReleasing(true); setError('');
                   try { await releaseCorrections(code); await load(); }
@@ -94,7 +93,7 @@ function AssignmentDetail({ code, onBack, onOpenAttempt }) {
               </div>
               <div className="stat-cell">
                 <span className="stat-value">{submitted.length}</span>
-                <span className="stat-label">Submitted</span>
+                <span className="stat-label">{record.mode === 'notebook' ? 'Completed' : 'Submitted'}</span>
               </div>
               <div className="stat-cell">
                 <span className={`stat-value ${average === null ? '' : accuracyClass(average / 100)}`}>
@@ -120,7 +119,7 @@ function AssignmentDetail({ code, onBack, onOpenAttempt }) {
                   <thead>
                     <tr>
                       <th>Student</th>
-                      <th>Score</th>
+                      <th>{record.mode === 'notebook' ? 'Status' : 'Score'}</th>
                       <th>Plays</th>
                       <th>Left page</th>
                       <th>Last activity</th>
@@ -135,7 +134,7 @@ function AssignmentDetail({ code, onBack, onOpenAttempt }) {
                       >
                         <td>{a.studentName}</td>
                         <td>
-                          {a.submitted && record.mode === 'notebook' ? <span className="status-pill">Classroom submission confirmed</span> : a.submitted ? (
+                          {a.submitted && record.mode === 'notebook' ? <span className="status-pill">Completed</span> : a.submitted ? (
                             <span className={`score-badge ${accuracyClass((a.scorePercent || 0) / 100)}`}>
                               {a.scorePercent}%
                             </span>

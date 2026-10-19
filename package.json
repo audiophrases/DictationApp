@@ -24,6 +24,7 @@
     "test": "npm run test:sentences && npm run test:notebook && npm run test:score && npm run test:grading && npm run test:student-auth && npm run test:dictation && npm run test:worker"
   },
   "dependencies": {
+    "compromise": "^14.19.0",
     "diff": "^9.0.0",
     "lucide-react": "^1.25.0",
     "msedge-tts": "^2.0.7",

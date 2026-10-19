@@ -26,7 +26,7 @@ function AttemptDetail({ code, attempt, onBack }) {
       <div className="app-header">
         <h1>{attempt.studentName}</h1>
         <p>
-          {attempt.submitted ? 'Submitted' : 'Not submitted'}
+          {data?.mode === 'notebook' ? (attempt.submitted ? 'Completed' : 'In progress') : (attempt.submitted ? 'Submitted' : 'Not submitted')}
           {results ? ` · ${Math.round(results.accuracy * 100)}% · ${results.correct} of ${results.total} words` : ''}
         </p>
       </div>
@@ -45,8 +45,7 @@ function AttemptDetail({ code, attempt, onBack }) {
         ) : data?.mode === 'notebook' ? (
           <div>
             <h2 style={{ fontSize: '1.2rem' }}>Written in a notebook</h2>
-            <p className="field-hint">{data.attempt.submitted ? 'The student confirmed turning in their photos in Classroom.' : 'The student has not confirmed submission yet.'} Review their notebook photos in Classroom. No automatic score is assigned.</p>
-            <a className="btn-primary" href={data.classroomUrl} target="_blank" rel="noopener noreferrer">Open Classroom</a>
+            <p className="field-hint">{data.attempt.submitted ? 'The student has finished the dictation.' : 'The student has not finished the dictation yet.'} No automatic score is assigned.</p>
             <h3 style={{ marginTop: '1.5rem' }}>Correction passage</h3>
             <p style={{ whiteSpace: 'pre-wrap', marginTop: '0.75rem' }}>{data.sentences.join(' ')}</p>
           </div>

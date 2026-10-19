@@ -118,7 +118,7 @@ function AssignmentGate({ code, onStart, starting, startError, onIdentityChange 
             </div>
           </div>
         </div>
-        {meta.mode === 'notebook' && <p className="field-hint" style={{ marginBottom: '1rem' }}>Write in your notebook and submit photos in Classroom. Your teacher releases corrections later. Reopen this link to check them.</p>}
+        {meta.mode === 'notebook' && <p className="field-hint" style={{ marginBottom: '1rem' }}>Write in your notebook. Your teacher releases corrections later. Reopen this link to check them.</p>}
         {!canOpen && closed ? <p className="empty-note">This assignment is closed. Ask your teacher to reopen it.</p>
           : !canOpen && overdue ? <p className="empty-note">The due date has passed.</p>
           : <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>

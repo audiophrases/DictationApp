@@ -32,7 +32,7 @@
 // draft/publish step.
 import { gradeDictation, gradeSentence, DEFAULT_GRADING_OPTIONS } from '../src/lib/grading.js';
 import { splitIntoSentences } from '../src/lib/sentences.js';
-import { notebookPlan, classroomLink } from '../src/lib/notebook.js';
+import { validatedNotebookSegments } from '../src/lib/notebookShared.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -47,6 +47,7 @@ const CORS_HEADERS = {
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MAX_AUDIO_BYTES = 5 * 1024 * 1024;
 const MAX_SENTENCES = 60;
+const MAX_NOTEBOOK_SEGMENTS = 240;
 const MAX_PASSAGE_CHARS = 20000;
 const MAX_ANSWER_CHARS = 2000;
 // ipa sentences arrive pre-split (one lesson line each); 500 matches the TTS
@@ -396,8 +397,6 @@ async function nextCode(env) {
 async function createAssignment(env, body) {
   const app = body.app === 'ipa' ? 'ipa' : 'dictation';
   const mode = app !== 'ipa' && body.mode === 'notebook' ? 'notebook' : 'typing';
-  const classroomUrl = mode === 'notebook' ? classroomLink(body.classroomUrl) : '';
-  if (mode === 'notebook' && !classroomUrl) return fail('Add the Google Classroom assignment link (https://classroom.google.com/…).');
   if (mode === 'notebook' && String(body.text || '').length > MAX_PASSAGE_CHARS) {
     return fail(`Notebook passages are limited to ${MAX_PASSAGE_CHARS} characters.`);
   }
@@ -415,14 +414,18 @@ async function createAssignment(env, body) {
     if (mode === 'notebook' && splitIntoSentences(passage).some((sentence) => sentence.length > 3000)) {
       return fail('A sentence is too long for the voice server (maximum 3000 characters). Add sentence breaks and try again.');
     }
-    // Split here, not in the browser: this list is what the audio is recorded
-    // against and what the answers are graded against, so exactly one component
-    // gets to decide where the sentences end.
-    sentences = mode === 'notebook' ? notebookPlan(passage).flatMap((p) => p.segments) : splitIntoSentences(passage);
+    // Typed answers are split and graded here. The teacher browser computes
+    // notebook phrases; validate them without loading a language model in the
+    // Worker. Students receive only the resulting clip count and audio.
+    sentences = mode === 'notebook'
+      ? validatedNotebookSegments(passage, body.notebookSegments)
+      : splitIntoSentences(passage);
+    if (!sentences) return fail('The notebook phrase plan does not match the passage. Reload the app and try again.');
   }
   if (sentences.length === 0) return fail('The passage is empty.');
-  if (sentences.length > MAX_SENTENCES) {
-    return fail(`That passage is ${sentences.length} sentences; the limit is ${MAX_SENTENCES}.`);
+  const limit = mode === 'notebook' ? MAX_NOTEBOOK_SEGMENTS : MAX_SENTENCES;
+  if (sentences.length > limit) {
+    return fail(`That passage is ${sentences.length} ${mode === 'notebook' ? 'segments' : 'sentences'}; the limit is ${limit}.`);
   }
 
   const now = Date.now();
@@ -431,7 +434,6 @@ async function createAssignment(env, body) {
     code: await nextCode(env),
     app,
     mode,
-    classroomUrl,
     correctionsReleased: false,
     correctionText: mode === 'notebook' ? sanitizeText(body.text, MAX_PASSAGE_CHARS).trim() : undefined,
     // No audio to upload means nothing to publish: an ipa assignment is usable
@@ -592,7 +594,7 @@ async function attemptDetail(env, code, studentKey, attemptId) {
   // there is nothing to regrade.)
   const results = record.mode === 'notebook' ? null
     : record.app === 'ipa' ? ipaResults(record, attempt) : attempt.results || gradeResults(record, attempt);
-  return json({ attempt, results, sentences: record.sentences, mode: record.mode, classroomUrl: record.classroomUrl });
+  return json({ attempt, results, sentences: record.sentences, mode: record.mode });
 }
 
 async function deleteAssignment(env, code) {
@@ -667,7 +669,6 @@ function studentMeta(record) {
     code: record.code,
     app: record.app,
     mode: record.mode || 'typing',
-    classroomUrl: record.classroomUrl || '',
     correctionsReleased: !!record.correctionsReleased,
     status: record.status,
     title: record.title,
@@ -946,10 +947,8 @@ async function submitAttempt(env, code, body) {
 
   if (record.mode === 'notebook') {
     if (!attempt.submitted) {
-      if (body.classroomSubmitted !== true) return fail('Submit your notebook photo in Google Classroom first.');
       attempt.submitted = true;
       attempt.submittedAt = Date.now();
-      attempt.classroomSubmittedAt = attempt.submittedAt;
       // Paper work is corrected by the student/teacher, never scored as blank typed answers.
       attempt.results = null;
       attempt.scorePercent = null;

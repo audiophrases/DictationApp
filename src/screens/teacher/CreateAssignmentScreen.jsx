@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ArrowLeft, Check, Copy, Loader2, Mic, RefreshCw } from 'lucide-react';
 import { splitIntoSentences } from '../../lib/sentences';
 import { SPEEDS, LANGUAGES, REPLAY_LIMITS, FEEDBACK_MODES } from '../../lib/options';
@@ -7,7 +7,7 @@ import { createAssignment, publishAssignment } from '../../lib/assignmentApi';
 import { recordSentences } from '../../lib/buildAssignment';
 import { studentLink } from '../../lib/appLinks';
 import MarkingRules from '../../components/MarkingRules';
-import { notebookPlan, classroomLink } from '../../lib/notebook';
+import { notebookPlan } from '../../lib/notebook';
 
 // A date input gives a day, and homework is due at the end of that day rather
 // than at midnight as it starts.
@@ -29,7 +29,6 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
   const [attemptsLimit, setAttemptsLimit] = useState(1);
   const [feedbackMode, setFeedbackMode] = useState('end');
   const [mode, setMode] = useState('typing');
-  const [classroomUrl, setClassroomUrl] = useState('');
   // Starts from the app-wide defaults so a new assignment marks the way free
   // practice does unless the teacher says otherwise — one place to change, not two.
   const [grading, setGrading] = useState({ ...DEFAULT_GRADING_OPTIONS });
@@ -42,7 +41,9 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
 
-  const previewCount = mode === 'notebook' ? notebookPlan(passage).flatMap((p) => p.segments).length : splitIntoSentences(passage).length;
+  const notebookSegments = useMemo(() => mode === 'notebook'
+    ? notebookPlan(passage, lang).flatMap((p) => p.segments) : null, [mode, passage, lang]);
+  const previewCount = notebookSegments?.length ?? splitIntoSentences(passage).length;
   const unit = mode === 'notebook' ? 'segment' : 'sentence';
 
   async function finish(assignmentCode) {
@@ -83,7 +84,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
       const { code: newCode, sentences: list } = await createAssignment({
         text: passage,
         mode,
-        classroomUrl,
+        notebookSegments,
         title,
         className,
         dueAt: endOfDay(due),
@@ -128,7 +129,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
           <h2 style={{ fontSize: '1.6rem' }}>Assignment ready</h2>
           <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>
             {sentences.length} {unit}{sentences.length !== 1 ? 's' : ''} recorded. {mode === 'notebook'
-              ? 'Students write by hand, submit photos in Classroom, and wait for you to release corrections.'
+              ? 'Students write by hand and wait for you to release corrections.'
               : 'Students hear each sentence before typing their answer.'}
           </p>
 
@@ -160,7 +161,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
           <Mic size={36} className="fetch-panel-icon" style={{ margin: '0 auto' }} />
           <h2 style={{ fontSize: '1.4rem', marginTop: '0.5rem' }}>Recording the {unit}s</h2>
           <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-            {mode === 'notebook' ? 'Complete sentences are recorded naturally first, then cut into segments at pauses. ' : 'Each sentence is recorded and stored now. '}
+            {mode === 'notebook' ? 'Complete sentences are recorded naturally first, then cut into short phrases. A spoken punctuation cue is added at each sentence ending. ' : 'Each sentence is recorded and stored now. '}
             Your students never wait for a voice server. The first recording can take a moment while it wakes up.
           </p>
 
@@ -211,13 +212,8 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
               <option value="typing">Type answers in the app</option>
               <option value="notebook">Notebook — write by hand</option>
             </select>
-            {mode === 'notebook' && <p className="field-hint">Space repeats a segment; Enter advances; arrow keys navigate. No marking is shown. Students submit notebook photos in Classroom, then you release the passage for corrections.</p>}
+            {mode === 'notebook' && <p className="field-hint">Space repeats a segment; Enter advances; arrow keys navigate. No marking is shown. You release the passage for corrections when students are ready.</p>}
           </div>
-          {mode === 'notebook' && <div>
-            <label className="field-label" htmlFor="classroom-url">Google Classroom assignment link</label>
-            <input id="classroom-url" type="url" value={classroomUrl} onChange={(e) => setClassroomUrl(e.target.value)} placeholder="https://classroom.google.com/c/…/a/…" />
-            <p className="field-hint">Create the assignment in Classroom and paste its link here. Students attach their photos and turn them in there.</p>
-          </div>}
           <div className="settings-grid">
             <div>
               <label className="field-label">Title</label>
@@ -310,7 +306,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
               style={{ minHeight: '180px' }}
             />
             <p className="field-hint">
-              {previewCount} {unit}{previewCount !== 1 ? 's' : ''} — {mode === 'notebook' ? 'long sentences split at commas and other pauses, keeping the original voice phrasing.' : 'one recording each.'}
+              {previewCount} {unit}{previewCount !== 1 ? 's' : ''} — {mode === 'notebook' ? 'short phrases, usually 2–7 words, keeping the original voice phrasing. Sentence endings are announced aloud.' : 'one recording each.'}
             </p>
           </div>
 
@@ -324,7 +320,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
               className="btn-primary"
               style={{ flex: 1 }}
               onClick={handleCreate}
-              disabled={previewCount === 0 || (mode === 'notebook' && !classroomLink(classroomUrl))}
+              disabled={previewCount === 0}
             >
               <Mic size={18} /> Create and record {previewCount || ''} {unit}{previewCount !== 1 ? 's' : ''}
             </button>

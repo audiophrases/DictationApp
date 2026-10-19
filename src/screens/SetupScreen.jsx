@@ -4,6 +4,7 @@ import { splitIntoSentences, countWords } from '../lib/sentences';
 import { SPEEDS, LANGUAGES, FETCH_SUPPORTED, REPLAY_LIMITS, FEEDBACK_MODES, languageName } from '../lib/options';
 import { hasLessons, fetchLessons } from '../lib/lessons';
 import SourceCitation from '../components/SourceCitation';
+import { notebookPlan, classroomLink } from '../lib/notebook';
 
 function SetupScreen({
   passage,
@@ -18,6 +19,8 @@ function SetupScreen({
 }) {
   const sentenceCount = splitIntoSentences(passage).length;
   const wordCount = countWords(passage);
+  const notebook = settings.mode === 'notebook';
+  const segmentCount = notebookPlan(passage).flatMap((p) => p.segments).length;
   const canFetch = FETCH_SUPPORTED.has(settings.lang);
   const langName = languageName(settings.lang);
 
@@ -63,6 +66,19 @@ function SetupScreen({
 
       <div className="glass-panel animate-fade-in">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div>
+            <label className="field-label" htmlFor="practice-mode">Dictation mode</label>
+            <select id="practice-mode" value={settings.mode || 'typing'} onChange={(e) => updateSetting('mode', e.target.value)} style={{ width: '100%' }}>
+              <option value="typing">Type answers in the app</option>
+              <option value="notebook">Notebook — write by hand</option>
+            </select>
+            {notebook && <p className="field-hint">Listen to short segments and write in your notebook. Space repeats, Enter advances, and arrow keys navigate. Submit photos in Classroom; your teacher shares corrections later. Teacher assignments control correction release in the app.</p>}
+          </div>
+          {notebook && <div>
+            <label className="field-label" htmlFor="practice-classroom">Classroom assignment link (optional)</label>
+            <input id="practice-classroom" type="url" value={settings.classroomUrl || ''} onChange={(e) => updateSetting('classroomUrl', e.target.value)} placeholder="https://classroom.google.com/…" />
+            {settings.classroomUrl && !classroomLink(settings.classroomUrl) && <p className="fetch-error">Use an https://classroom.google.com/ link.</p>}
+          </div>}
           <div className="settings-grid">
             <div>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Language</label>
@@ -88,7 +104,7 @@ function SetupScreen({
                 ))}
               </select>
             </div>
-            <div>
+            {!notebook && <div>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Replays allowed</label>
               <select
                 value={settings.maxListens}
@@ -99,8 +115,8 @@ function SetupScreen({
                   <option key={r.value} value={r.value}>{r.name}</option>
                 ))}
               </select>
-            </div>
-            <div>
+            </div>}
+            {!notebook && <div>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Feedback</label>
               <select
                 value={settings.feedbackMode || 'end'}
@@ -111,7 +127,7 @@ function SetupScreen({
                   <option key={m.value} value={m.value}>{m.name}</option>
                 ))}
               </select>
-            </div>
+            </div>}
           </div>
 
           {lessonsAvailable && (
@@ -238,9 +254,9 @@ function SetupScreen({
             className="btn-primary"
             style={{ width: '100%', padding: '1rem', fontSize: '1.125rem' }}
             onClick={onStart}
-            disabled={!passage.trim()}
+            disabled={!passage.trim() || (notebook && settings.classroomUrl && !classroomLink(settings.classroomUrl))}
           >
-            <Play size={24} /> Start Dictation Session
+            <Play size={24} /> {notebook ? `Prepare notebook dictation (${segmentCount} segments)` : 'Start Dictation Session'}
           </button>
         </div>
       </div>

@@ -124,6 +124,43 @@ set as an assignment.
 
 ## Assignments
 
+### Notebook mode
+
+Choose **Notebook — write by hand** in practice or when creating an assignment.
+Students hear segments without an answer box or automatic feedback:
+
+- **Space** repeats the current segment.
+- **Enter** advances to the next segment; on the last one it opens the photo step.
+- **Left / Right arrows** move backward / forward and play that segment.
+
+The app records complete sentences with the existing natural neural voices
+first, then uses word timings to cut the recordings. Sentences of up to 18
+words stay whole; longer sentences prefer commas and other punctuation pauses,
+with word boundaries as a fallback for long clauses. Segments retain the
+original recording's phrasing. Recording failures can be retried before publishing.
+
+For an assignment, the teacher supplies a Google Classroom assignment link.
+Students photograph their notebook pages, attach the photos in Classroom and
+press **Turn in**, then confirm submission here. The optional camera/file picker
+provides a preview and a download; it does **not** upload to Classroom. Photos
+can also be taken and submitted on a separate phone. There is no Classroom API
+integration, and the app records the student's confirmation rather than verifying
+Classroom's submission status.
+
+Teachers review the photos in Classroom and choose **Release corrections to
+students** on the assignment detail page. Only submitted students can retrieve
+the passage, then correct their notebooks by hand. They can check for corrections
+or reopen the link using the same school account, even after the due date or
+archiving. Notebook work receives no automatic score. Each notebook assignment
+has one submission per student. Free practice has the same listening and photo
+flow; its teacher shares corrections separately. Use an assignment for release
+control inside the app.
+
+Notebook assignments require the updated frontend, Node voice server (word
+timings), and Cloudflare Worker (WAV playback and correction release).
+
+### Typed assignments
+
 The teacher's side is its own page at **`/create/`** — the same shape pinplay
 uses. Sign in there with the teacher password to build assignments and read
 results: who has handed in, their scores, how often each sentence was played,
@@ -173,6 +210,7 @@ into Dictation. Verified email IDs (`usr_<email>`) preserve existing attempts
 and attempt limits, including work started before Google sign-in was added.
 
 **The passage text never reaches a student's browser until they submit.** The
+notebook mode additionally requires the teacher to release corrections. The
 worker sends audio by sentence number and withholds the sentences themselves,
 so there is nothing to read in the page source, in storage, or in the network
 tab. Replay limits are counted server-side for the same reason: each play is a

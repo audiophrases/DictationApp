@@ -37,6 +37,10 @@ export function setAssignmentStatus(code, status) {
   return teacherPost('/api/teacher/assignments/status', { code, status });
 }
 
+export function releaseCorrections(code) {
+  return teacherPost('/api/teacher/assignments/release-corrections', { code });
+}
+
 export function deleteAssignment(code) {
   return teacherPost('/api/teacher/assignments/delete', { code });
 }
@@ -51,7 +55,7 @@ export async function uploadSentenceAudio(code, index, blob) {
   try {
     res = await fetch(workerUrl(`/api/teacher/assignments/${code}/audio/${index}`), {
       method: 'PUT',
-      headers: { 'Content-Type': 'audio/mpeg', 'X-Teacher-Password': getTeacherPassword() },
+      headers: { 'Content-Type': blob.type || 'audio/mpeg', 'X-Teacher-Password': getTeacherPassword() },
       body: blob,
     });
   } catch {
@@ -102,10 +106,10 @@ export function reportWarning(code, attemptId) {
   });
 }
 
-export function submitAttempt(code, attemptId, answers) {
+export function submitAttempt(code, attemptId, answers, extra = {}) {
   return workerApi(`/api/assignments/${code}/submit`, {
     method: 'POST',
-    body: { attemptId, answers },
+    body: { attemptId, answers, ...extra },
     timeoutMs: 25000,
   });
 }

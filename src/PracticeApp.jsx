@@ -1,9 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSpeech } from './useSpeech';
 import { useServerReady } from './useServerReady';
 import SetupScreen from './screens/SetupScreen';
 import DictationScreen from './screens/DictationScreen';
 import ResultsScreen from './screens/ResultsScreen';
+import NotebookScreen from './screens/NotebookScreen';
+import { NotebookSubmission, NotebookCorrections } from './screens/NotebookSubmission';
+import { prepareNotebook } from './lib/notebookAudio';
 import WakingOverlay from './components/WakingOverlay';
 import { splitIntoSentences } from './lib/sentences';
 import { ttsBase } from './lib/api';
@@ -62,6 +65,31 @@ function PracticeApp() {
   // Per-sentence mode only: the marked sentence just answered, shown before
   // the next one plays.
   const [feedback, setFeedback] = useState(null);
+  const [prepareError, setPrepareError] = useState('');
+  const [prepareProgress, setPrepareProgress] = useState('');
+  const [notebookSpeaking, setNotebookSpeaking] = useState(false);
+  const [notebookError, setNotebookError] = useState('');
+  const notebookClips = useRef([]);
+  const notebookPlayer = useRef(null);
+  useEffect(() => () => {
+    notebookPlayer.current?.pause();
+    notebookClips.current.forEach((url) => URL.revokeObjectURL(url));
+  }, []);
+
+  function stopNotebook() {
+    notebookPlayer.current?.pause();
+    notebookPlayer.current = null;
+    setNotebookSpeaking(false);
+  }
+
+  function playNotebook(index) {
+    stopNotebook(); setNotebookError('');
+    const player = new Audio(notebookClips.current[index]);
+    notebookPlayer.current = player;
+    player.onplaying = () => { if (notebookPlayer.current === player) setNotebookSpeaking(true); };
+    player.onended = () => { if (notebookPlayer.current === player) setNotebookSpeaking(false); };
+    player.play().catch(() => { if (notebookPlayer.current === player) { setNotebookError('Could not play this segment. Press Space to try again.'); setNotebookSpeaking(false); } });
+  }
 
   useEffect(() => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
@@ -125,7 +153,7 @@ function PracticeApp() {
 
   // Anti-cheat: leaving the page/window during dictation is recorded
   useEffect(() => {
-    if (appState !== 'dictating') return;
+    if (appState !== 'dictating' || settings.mode === 'notebook') return;
 
     const handleVisibilityChange = () => {
       if (document.hidden) setWarnings((prev) => prev + 1);
@@ -138,7 +166,7 @@ function PracticeApp() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [appState]);
+  }, [appState, settings.mode]);
 
   // Every playback path funnels through here, so this is the one place that
   // needs to tell the warm-up hook someone is actually waiting on audio —
@@ -152,24 +180,37 @@ function PracticeApp() {
   // so pressing Enter starts playback immediately instead of waiting on a round
   // trip to the voice service. Silent and best-effort — see useSpeech.prefetch.
   useEffect(() => {
-    if (appState !== 'dictating') return;
+    if (appState !== 'dictating' || settings.mode === 'notebook') return;
     prefetch(sentences[currentIndex + 1], settings.lang, { rate: settings.rate });
-  }, [appState, sentences, currentIndex, settings.lang, settings.rate, prefetch]);
+  }, [appState, sentences, currentIndex, settings.lang, settings.rate, settings.mode, prefetch]);
 
   // The first sentence is the wait every student notices, so warm it while the
   // setup screen is still up. Debounced so typing a passage by hand doesn't
   // fire a request per keystroke. The text is not on screen while this happens
   // if the passage was fetched — only the audio is being readied.
   useEffect(() => {
-    if (appState !== 'setup' || !passage.trim()) return;
+    if (appState !== 'setup' || !passage.trim() || settings.mode === 'notebook') return;
     const timer = setTimeout(() => {
       const [first] = splitIntoSentences(passage);
       prefetch(first, settings.lang, { rate: settings.rate });
     }, 800);
     return () => clearTimeout(timer);
-  }, [appState, passage, settings.lang, settings.rate, prefetch]);
+  }, [appState, passage, settings.lang, settings.rate, settings.mode, prefetch]);
 
-  const startDictation = () => {
+  const startDictation = async () => {
+    if (settings.mode === 'notebook') {
+      setPrepareError(''); setPrepareProgress('Recording natural sentences…'); setAppState('preparing');
+      stop(); stopNotebook(); requireServer();
+      notebookClips.current.forEach((url) => URL.revokeObjectURL(url));
+      notebookClips.current = [];
+      try {
+        const clips = await prepareNotebook(passage, settings, (done, total) => setPrepareProgress(`Recorded ${done} of ${total} sentences`));
+        notebookClips.current = clips.map((clip) => URL.createObjectURL(clip));
+        setSentences(clips.map(() => ''));
+        setCurrentIndex(0); setListenCounts(clips.map(() => 0)); setAppState('ready');
+      } catch (err) { setPrepareError(err.message); }
+      return;
+    }
     const cleanedSentences = splitIntoSentences(passage);
     if (cleanedSentences.length === 0) return;
 
@@ -239,7 +280,21 @@ function PracticeApp() {
   };
 
   let screen;
-  if (appState === 'finished') {
+  if (appState === 'preparing' || appState === 'ready') {
+    screen = <div className="app-container notebook-container"><div className="glass-panel notebook-panel">
+      <h1>{appState === 'ready' ? 'Notebook audio ready' : 'Preparing notebook audio'}</h1>
+      <p className="field-hint">Complete sentences are recorded with natural voices, then divided into segments for writing.</p>
+      <p role="status">{appState === 'ready' ? `${notebookClips.current.length} segments. Have your notebook ready.` : prepareProgress}</p>
+      {prepareError && <p className="fetch-error" role="alert">{prepareError}</p>}
+      {appState === 'ready' && <button className="btn-primary" onClick={() => { setAppState('dictating'); playNotebook(0); }}>Start notebook dictation</button>}
+      {prepareError && <><button className="btn-primary" onClick={startDictation}>Try again</button><button className="btn-ghost" onClick={() => setAppState('setup')}>Back to setup</button></>}
+    </div></div>;
+  } else if (appState === 'photo') {
+    screen = <NotebookSubmission classroomUrl={settings.classroomUrl} onSubmit={() => setAppState('finished')}
+      onBack={() => setAppState('dictating')} />;
+  } else if (appState === 'finished' && settings.mode === 'notebook') {
+    screen = <NotebookCorrections outcome={{ correctionsReleased: false }} onNewPassage={() => setAppState('setup')} />;
+  } else if (appState === 'finished') {
     screen = (
       <ResultsScreen
         sentences={sentences}
@@ -252,6 +307,11 @@ function PracticeApp() {
         onNewPassage={() => setAppState('setup')}
       />
     );
+  } else if (appState === 'dictating' && settings.mode === 'notebook') {
+    screen = <NotebookScreen count={sentences.length} index={currentIndex}
+      onMove={(index) => { setCurrentIndex(index); playNotebook(index); }}
+      onRepeat={() => playNotebook(currentIndex)} onFinish={() => { stopNotebook(); setAppState('photo'); }}
+      isSpeaking={notebookSpeaking} replaysLeft={null} error={notebookError} />;
   } else if (appState === 'dictating') {
     screen = (
       <DictationScreen

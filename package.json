@@ -20,7 +20,8 @@
     "test:student-auth": "node --test src/lib/studentAuth.test.mjs",
     "test:dictation": "node server/dictation.test.mjs",
     "test:sentences": "node src/lib/sentences.test.mjs",
-    "test": "npm run test:sentences && npm run test:score && npm run test:grading && npm run test:student-auth && npm run test:dictation && npm run test:worker"
+    "test:notebook": "node --test src/lib/notebook.test.mjs",
+    "test": "npm run test:sentences && npm run test:notebook && npm run test:score && npm run test:grading && npm run test:student-auth && npm run test:dictation && npm run test:worker"
   },
   "dependencies": {
     "diff": "^9.0.0",

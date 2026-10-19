@@ -7,6 +7,7 @@ import { createAssignment, publishAssignment } from '../../lib/assignmentApi';
 import { recordSentences } from '../../lib/buildAssignment';
 import { studentLink } from '../../lib/appLinks';
 import MarkingRules from '../../components/MarkingRules';
+import { notebookPlan, classroomLink } from '../../lib/notebook';
 
 // A date input gives a day, and homework is due at the end of that day rather
 // than at midnight as it starts.
@@ -27,6 +28,8 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
   const [maxListens, setMaxListens] = useState(0);
   const [attemptsLimit, setAttemptsLimit] = useState(1);
   const [feedbackMode, setFeedbackMode] = useState('end');
+  const [mode, setMode] = useState('typing');
+  const [classroomUrl, setClassroomUrl] = useState('');
   // Starts from the app-wide defaults so a new assignment marks the way free
   // practice does unless the teacher says otherwise — one place to change, not two.
   const [grading, setGrading] = useState({ ...DEFAULT_GRADING_OPTIONS });
@@ -39,7 +42,8 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
 
-  const previewCount = splitIntoSentences(passage).length;
+  const previewCount = mode === 'notebook' ? notebookPlan(passage).flatMap((p) => p.segments).length : splitIntoSentences(passage).length;
+  const unit = mode === 'notebook' ? 'segment' : 'sentence';
 
   async function finish(assignmentCode) {
     try {
@@ -59,7 +63,12 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
       lang,
       rate,
       only,
-      onSettled: () => setRecorded((n) => n + 1),
+      mode,
+      text: passage,
+      onSettled: (_index, failure) => {
+        setRecorded((n) => n + 1);
+        if (failure) setError(failure.message);
+      },
     });
     setFailed(stragglers);
     if (stragglers.length === 0) await finish(assignmentCode);
@@ -73,6 +82,8 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
     try {
       const { code: newCode, sentences: list } = await createAssignment({
         text: passage,
+        mode,
+        classroomUrl,
         title,
         className,
         dueAt: endOfDay(due),
@@ -116,8 +127,9 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
           <Check size={44} color="var(--success-color)" style={{ margin: '0 auto 0.75rem' }} />
           <h2 style={{ fontSize: '1.6rem' }}>Assignment ready</h2>
           <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-            {sentences.length} sentence{sentences.length !== 1 ? 's' : ''} recorded. Students hear
-            each sentence before typing their answer.
+            {sentences.length} {unit}{sentences.length !== 1 ? 's' : ''} recorded. {mode === 'notebook'
+              ? 'Students write by hand, submit photos in Classroom, and wait for you to release corrections.'
+              : 'Students hear each sentence before typing their answer.'}
           </p>
 
           <div className="assignment-code">{code}</div>
@@ -146,10 +158,10 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
       <div className="app-container" style={{ padding: '2rem', maxWidth: '640px', margin: '0 auto' }}>
         <div className="glass-panel animate-fade-in" style={{ textAlign: 'center' }}>
           <Mic size={36} className="fetch-panel-icon" style={{ margin: '0 auto' }} />
-          <h2 style={{ fontSize: '1.4rem', marginTop: '0.5rem' }}>Recording the sentences</h2>
+          <h2 style={{ fontSize: '1.4rem', marginTop: '0.5rem' }}>Recording the {unit}s</h2>
           <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-            Each sentence is read once now and stored, so your students never wait for a voice
-            server. The first one can take a moment while it wakes up.
+            {mode === 'notebook' ? 'Complete sentences are recorded naturally first, then cut into segments at pauses. ' : 'Each sentence is recorded and stored now. '}
+            Your students never wait for a voice server. The first recording can take a moment while it wakes up.
           </p>
 
           <div className="progress-track" style={{ margin: '1.5rem 0 0.5rem' }}>
@@ -162,16 +174,20 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
           {failed.length > 0 && (
             <>
               <p className="fetch-error" style={{ marginTop: '1rem' }}>
-                Sentence{failed.length > 1 ? 's' : ''} {failed.map((i) => i + 1).join(', ')} didn't
-                record. The assignment stays unpublished until every sentence has audio.
+                {unit === 'segment' ? 'Segment' : 'Sentence'}{failed.length > 1 ? 's' : ''} {failed.map((i) => i + 1).join(', ')} didn't
+                record. The assignment stays unpublished until every {unit} has audio.
               </p>
               <button className="btn-primary" style={{ marginTop: '1rem' }} onClick={handleRetry}>
-                <RefreshCw size={18} /> Retry those sentences
+                <RefreshCw size={18} /> Retry those {unit}s
               </button>
             </>
           )}
 
           {error && <p className="fetch-error" style={{ marginTop: '1rem' }}>{error}</p>}
+
+          {error && code && failed.length === 0 && <button className="btn-primary" style={{ marginTop: '1rem' }} onClick={() => { setError(''); finish(code); }}>
+            <RefreshCw size={18} /> Retry publishing
+          </button>}
 
           {failed.length === 0 && !error && (
             <Loader2 size={20} className="spin" style={{ marginTop: '1rem', color: 'var(--text-muted)' }} />
@@ -189,6 +205,19 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
 
       <div className="glass-panel animate-fade-in">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div>
+            <label className="field-label" htmlFor="assignment-mode">Dictation mode</label>
+            <select id="assignment-mode" value={mode} onChange={(e) => setMode(e.target.value)} style={{ width: '100%' }}>
+              <option value="typing">Type answers in the app</option>
+              <option value="notebook">Notebook — write by hand</option>
+            </select>
+            {mode === 'notebook' && <p className="field-hint">Space repeats a segment; Enter advances; arrow keys navigate. No marking is shown. Students submit notebook photos in Classroom, then you release the passage for corrections.</p>}
+          </div>
+          {mode === 'notebook' && <div>
+            <label className="field-label" htmlFor="classroom-url">Google Classroom assignment link</label>
+            <input id="classroom-url" type="url" value={classroomUrl} onChange={(e) => setClassroomUrl(e.target.value)} placeholder="https://classroom.google.com/c/…/a/…" />
+            <p className="field-hint">Create the assignment in Classroom and paste its link here. Students attach their photos and turn them in there.</p>
+          </div>}
           <div className="settings-grid">
             <div>
               <label className="field-label">Title</label>
@@ -234,7 +263,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
           </div>
 
           <div className="settings-grid">
-            <div>
+            {mode !== 'notebook' && <div>
               <label className="field-label">Attempts</label>
               <select
                 value={attemptsLimit}
@@ -246,8 +275,8 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
                 <option value={3}>3 attempts</option>
                 <option value={0}>Unlimited</option>
               </select>
-            </div>
-            <div>
+            </div>}
+            {mode !== 'notebook' && <div>
               <label className="field-label">Feedback</label>
               <select
                 value={feedbackMode}
@@ -259,10 +288,10 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
                 ))}
                 <option value="none">Nothing</option>
               </select>
-            </div>
+            </div>}
           </div>
 
-          <div>
+          {mode !== 'notebook' && <div>
             <label className="field-label">Marking</label>
             <MarkingRules value={grading} onChange={setGrading} />
             <p className="field-hint">
@@ -270,7 +299,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
               spelling-focused task. Fixed when you create the assignment — students can't loosen
               it to re-mark themselves.
             </p>
-          </div>
+          </div>}
 
           <div>
             <label className="field-label">Passage</label>
@@ -281,7 +310,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
               style={{ minHeight: '180px' }}
             />
             <p className="field-hint">
-              {previewCount} sentence{previewCount !== 1 ? 's' : ''} — one recording each.
+              {previewCount} {unit}{previewCount !== 1 ? 's' : ''} — {mode === 'notebook' ? 'long sentences split at commas and other pauses, keeping the original voice phrasing.' : 'one recording each.'}
             </p>
           </div>
 
@@ -295,9 +324,9 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
               className="btn-primary"
               style={{ flex: 1 }}
               onClick={handleCreate}
-              disabled={previewCount === 0}
+              disabled={previewCount === 0 || (mode === 'notebook' && !classroomLink(classroomUrl))}
             >
-              <Mic size={18} /> Create and record {previewCount || ''} sentence{previewCount !== 1 ? 's' : ''}
+              <Mic size={18} /> Create and record {previewCount || ''} {unit}{previewCount !== 1 ? 's' : ''}
             </button>
           </div>
         </div>

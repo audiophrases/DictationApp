@@ -21,9 +21,13 @@ function AssignmentGate({ code, onStart, starting, startError, onIdentityChange 
   const [reloadKey, setReloadKey] = useState(0);
   const [, refreshIdentity] = useState(0);
   const session = readStudentSession();
+  const savedAttempt = recallAttempt(code);
+  const returningNotebook = meta?.mode === 'notebook' && session
+    && savedAttempt?.email?.toLowerCase() === session.student.email.toLowerCase();
   const closed = meta && meta.status !== 'active';
   const overdue = meta?.dueAt && Date.now() > meta.dueAt;
-  const needsSignIn = !!meta && !closed && !overdue && !session;
+  const canOpen = meta?.mode === 'notebook' || (!closed && !overdue);
+  const needsSignIn = !!meta && canOpen && !session;
 
   useEffect(() => {
     let cancelled = false;
@@ -100,22 +104,23 @@ function AssignmentGate({ code, onStart, starting, startError, onIdentityChange 
       </div>
       <form className="glass-panel animate-fade-in" onSubmit={(event) => {
         event.preventDefault();
-        if (!starting && session && !closed && !overdue) onStart();
+        if (!starting && session && canOpen) onStart();
       }}>
         <div className="passage-cover" style={{ minHeight: 'auto', marginBottom: '1.25rem' }}>
           <Headphones size={20} className="passage-cover-icon" />
           <div>
-            <div className="passage-cover-title">{meta.sentenceCount} sentence{meta.sentenceCount !== 1 ? 's' : ''} to type</div>
+            <div className="passage-cover-title">{meta.sentenceCount} {meta.mode === 'notebook' ? 'segments to write by hand' : `sentence${meta.sentenceCount !== 1 ? 's' : ''} to type`}</div>
             <div className="passage-cover-sub">
               {meta.maxListens === 0
-                ? 'You can replay each sentence as often as you like.'
-                : `${meta.maxListens} replay${meta.maxListens !== 1 ? 's' : ''} per sentence.`}
+                ? `You can replay each ${meta.mode === 'notebook' ? 'segment' : 'sentence'} as often as you like.`
+                : `${meta.maxListens} replay${meta.maxListens !== 1 ? 's' : ''} per ${meta.mode === 'notebook' ? 'segment' : 'sentence'}.`}
               {due ? ` Due ${due}.` : ''}
             </div>
           </div>
         </div>
-        {closed ? <p className="empty-note">This assignment is closed. Ask your teacher to reopen it.</p>
-          : overdue ? <p className="empty-note">The due date has passed.</p>
+        {meta.mode === 'notebook' && <p className="field-hint" style={{ marginBottom: '1rem' }}>Write in your notebook and submit photos in Classroom. Your teacher releases corrections later. Reopen this link to check them.</p>}
+        {!canOpen && closed ? <p className="empty-note">This assignment is closed. Ask your teacher to reopen it.</p>
+          : !canOpen && overdue ? <p className="empty-note">The due date has passed.</p>
           : <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {session ? <>
               <div style={{ overflowWrap: 'anywhere' }}>
@@ -128,10 +133,10 @@ function AssignmentGate({ code, onStart, starting, startError, onIdentityChange 
                   refreshIdentity((n) => n + 1);
                 }}>Not you? Switch account</button>
               </div>
-              {resume && <p className="field-hint">You have an unfinished attempt. Carry on where you stopped.</p>}
+              {resume && <p className="field-hint">{returningNotebook ? 'Reopen your work or check for released corrections.' : 'You have an unfinished attempt. Carry on where you stopped.'}</p>}
               <button className="btn-primary" type="submit" disabled={starting} style={{ padding: '0.9rem' }}>
                 {starting ? <><Loader2 size={18} className="spin" /> Starting…</>
-                  : <><LogIn size={18} /> {resume ? 'Carry on' : 'Start'}</>}
+                  : <><LogIn size={18} /> {returningNotebook ? 'Open my work / corrections' : resume ? 'Carry on' : 'Start'}</>}
               </button>
             </> : <>
               <p className="field-hint">{domain ? `Sign in with your ${domain} school account.` : 'Sign in with your Google account.'}</p>

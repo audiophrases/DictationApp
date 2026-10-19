@@ -25,6 +25,8 @@ export function useAssignmentAudio({ code, attemptId, maxListens, initialListens
   const clipsRef = useRef(new Map());
   const inFlightRef = useRef(new Set());
 
+  useEffect(() => { setListens({ ...(initialListens || {}) }); }, [initialListens]);
+
   useEffect(() => {
     const clips = clipsRef.current;
     return () => {
@@ -71,6 +73,7 @@ export function useAssignmentAudio({ code, attemptId, maxListens, initialListens
     (index, { replay = false } = {}) => {
       if (audioRef.current) audioRef.current.pause();
       setError('');
+      setIsSpeaking(false);
 
       const clips = clipsRef.current;
       let url;
@@ -93,10 +96,12 @@ export function useAssignmentAudio({ code, attemptId, maxListens, initialListens
       };
       audio.onended = finish;
       audio.onerror = () => {
+        if (audioRef.current !== audio) return;
         setError("That sentence wouldn't play. Try Listen Again.");
         finish();
       };
       audio.play().catch(() => {
+        if (audioRef.current !== audio) return;
         setError("That sentence wouldn't play. Try Listen Again.");
         finish();
       });

@@ -3,6 +3,8 @@ import { CheckCircle, Loader2, RefreshCw } from 'lucide-react';
 import AssignmentGate from './screens/assignment/AssignmentGate';
 import DictationScreen from './screens/DictationScreen';
 import ResultsScreen from './screens/ResultsScreen';
+import NotebookScreen from './screens/NotebookScreen';
+import { NotebookSubmission, NotebookCorrections } from './screens/NotebookSubmission';
 import { useAssignmentAudio } from './useAssignmentAudio';
 import { clearStudentSession, readStudentSession } from './lib/studentAuth';
 import {
@@ -12,6 +14,7 @@ import {
   saveAnswer,
   startAttempt,
   submitAttempt,
+  fetchAttemptResults,
 } from './lib/assignmentApi';
 
 /**
@@ -86,15 +89,16 @@ function AssignmentApp({ code }) {
         // per-sentence saves during the dictation are only insurance against a
         // crash; this is the copy that gets marked (per-sentence mode aside,
         // where the worker keeps what it already marked and this fills gaps).
-        const result = await submitAttempt(code, id, finalAnswers);
-        forgetAttempt(code);
+        const result = await submitAttempt(code, id, finalAnswers,
+          meta?.mode === 'notebook' ? { classroomSubmitted: true } : {});
+        if (meta?.mode !== 'notebook') forgetAttempt(code);
         setOutcome(result);
         setPhase('done');
       } catch (err) {
         setSubmitError(err.message);
       }
     },
-    [code, attemptId, stop]
+    [code, attemptId, stop, meta?.mode]
   );
 
   async function handleStart() {
@@ -113,6 +117,12 @@ function AssignmentApp({ code }) {
       setWarnings(data.warnings || 0);
       answersRef.current = restored;
       rememberAttempt(code, data.attemptId, session.student.email);
+
+      if (data.meta.mode === 'notebook' && data.submitted) {
+        setOutcome(data.outcome);
+        setPhase('done');
+        return;
+      }
 
       // Per-sentence mode: every sentence answered means every one has been
       // marked and shown, and only the hand-in was lost with the page. Redoing
@@ -153,14 +163,14 @@ function AssignmentApp({ code }) {
   // One sentence ahead, and only when replays are unlimited — see the note in
   // useAssignmentAudio about why prefetching is metered.
   useEffect(() => {
-    if (phase !== 'dictating' || !meta) return;
+    if (phase !== 'dictating' || !meta || meta.mode === 'notebook') return;
     if (currentIndex + 1 < meta.sentenceCount) prefetch(currentIndex + 1);
   }, [phase, meta, currentIndex, prefetch]);
 
   // Leaving the page mid-dictation is recorded for the teacher, same as in free
   // practice, but here it also has to reach the server.
   useEffect(() => {
-    if (phase !== 'dictating' || !attemptId) return;
+    if (phase !== 'dictating' || !attemptId || meta?.mode === 'notebook') return;
 
     const flag = () => {
       setWarnings((n) => n + 1);
@@ -179,7 +189,7 @@ function AssignmentApp({ code }) {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('blur', flag);
     };
-  }, [phase, code, attemptId]);
+  }, [phase, code, attemptId, meta?.mode]);
 
   function advance(index) {
     const next = index + 1;
@@ -280,7 +290,7 @@ function AssignmentApp({ code }) {
               <h2 style={{ fontSize: '1.3rem' }}>Couldn't hand this in</h2>
               <p style={{ color: 'var(--text-muted)', marginTop: '0.75rem' }}>{submitError}</p>
               <p className="field-hint">
-                Your answers are still here — don't close this page.
+                Your work is still here — don't close this page.
               </p>
               <button
                 className="btn-primary"
@@ -302,6 +312,8 @@ function AssignmentApp({ code }) {
   }
 
   if (phase === 'done') {
+    if (meta?.mode === 'notebook') return <NotebookCorrections outcome={outcome}
+      onRefresh={async () => setOutcome(await fetchAttemptResults(code, attemptId))} />;
     if (outcome?.feedbackMode === 'none' || !outcome?.results) {
       return (
         <div className="app-container" style={{ padding: '2rem', maxWidth: '460px', margin: '0 auto' }}>
@@ -339,6 +351,22 @@ function AssignmentApp({ code }) {
         actions={<span className="field-hint">You can close this page now.</span>}
       />
     );
+  }
+
+  if (phase === 'photo') return <NotebookSubmission classroomUrl={meta.classroomUrl}
+    onSubmit={() => finish([])} onBack={() => { endedRef.current = false; setPhase('dictating'); }} />;
+
+  if (meta?.mode === 'notebook') {
+    return <NotebookScreen heading={meta.title} count={meta.sentenceCount} index={currentIndex}
+      onMove={(index) => {
+        stop();
+        saveAnswer(code, attemptId, currentIndex, '').catch(() => {});
+        setCurrentIndex(index);
+        if (audio.replaysLeftFor(index) === null || audio.replaysLeftFor(index) > 0) play(index, { replay: true });
+      }}
+      onRepeat={() => play(currentIndex, { replay: true })}
+      onFinish={() => { stop(); setPhase('photo'); }}
+      isSpeaking={audio.isSpeaking} replaysLeft={audio.replaysLeftFor(currentIndex)} error={audio.error} />;
   }
 
   return (

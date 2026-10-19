@@ -10,6 +10,8 @@
 // student thereafter plays audio straight out of R2 with no TTS call at all.
 import { ttsBase } from './api';
 import { uploadSentenceAudio } from './assignmentApi';
+import { prepareNotebookSentence } from './notebookAudio';
+import { notebookPlan } from './notebook';
 
 // Two at a time: enough to hide the round-trip latency, gentle enough that a
 // just-woken free-tier server isn't hit with twenty synthesis jobs at once.
@@ -35,7 +37,34 @@ async function synthesize(text, lang, rate) {
  *
  * Returns the indexes that did not make it.
  */
-export async function recordSentences(code, sentences, { lang, rate, only, onSettled }) {
+export async function recordSentences(code, sentences, { lang, rate, only, onSettled, mode, text }) {
+  if (mode === 'notebook') {
+    const context = new AudioContext({ sampleRate: 24000 });
+    const wanted = new Set(only || sentences.map((_, i) => i));
+    const failed = [];
+    let offset = 0;
+    try {
+      for (const part of notebookPlan(text)) {
+        const indexes = part.segments.map((_, i) => offset + i).filter((i) => wanted.has(i));
+        offset += part.segments.length;
+        if (!indexes.length) continue;
+        let clips;
+        try {
+          clips = await prepareNotebookSentence(part.sentence, { lang, rate, context });
+        } catch (error) {
+          for (const index of indexes) { failed.push(index); onSettled?.(index, error); }
+          continue;
+        }
+        for (const index of indexes) {
+          try {
+            await uploadSentenceAudio(code, index, clips[index - (offset - part.segments.length)]);
+            onSettled?.(index, null);
+          } catch (error) { failed.push(index); onSettled?.(index, error); }
+        }
+      }
+    } finally { await context.close(); }
+    return failed;
+  }
   const queue = (only || sentences.map((_, i) => i)).slice();
   const failed = [];
 

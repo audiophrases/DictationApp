@@ -32,6 +32,7 @@
 // draft/publish step.
 import { gradeDictation, gradeSentence, DEFAULT_GRADING_OPTIONS } from '../src/lib/grading.js';
 import { splitIntoSentences } from '../src/lib/sentences.js';
+import { notebookPlan, classroomLink } from '../src/lib/notebook.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -394,6 +395,12 @@ async function nextCode(env) {
 
 async function createAssignment(env, body) {
   const app = body.app === 'ipa' ? 'ipa' : 'dictation';
+  const mode = app !== 'ipa' && body.mode === 'notebook' ? 'notebook' : 'typing';
+  const classroomUrl = mode === 'notebook' ? classroomLink(body.classroomUrl) : '';
+  if (mode === 'notebook' && !classroomUrl) return fail('Add the Google Classroom assignment link (https://classroom.google.com/…).');
+  if (mode === 'notebook' && String(body.text || '').length > MAX_PASSAGE_CHARS) {
+    return fail(`Notebook passages are limited to ${MAX_PASSAGE_CHARS} characters.`);
+  }
 
   let sentences;
   if (app === 'ipa') {
@@ -405,10 +412,13 @@ async function createAssignment(env, body) {
       .filter(Boolean);
   } else {
     const passage = sanitizeText(body.text, MAX_PASSAGE_CHARS);
+    if (mode === 'notebook' && splitIntoSentences(passage).some((sentence) => sentence.length > 3000)) {
+      return fail('A sentence is too long for the voice server (maximum 3000 characters). Add sentence breaks and try again.');
+    }
     // Split here, not in the browser: this list is what the audio is recorded
     // against and what the answers are graded against, so exactly one component
     // gets to decide where the sentences end.
-    sentences = splitIntoSentences(passage);
+    sentences = mode === 'notebook' ? notebookPlan(passage).flatMap((p) => p.segments) : splitIntoSentences(passage);
   }
   if (sentences.length === 0) return fail('The passage is empty.');
   if (sentences.length > MAX_SENTENCES) {
@@ -420,6 +430,10 @@ async function createAssignment(env, body) {
   const record = {
     code: await nextCode(env),
     app,
+    mode,
+    classroomUrl,
+    correctionsReleased: false,
+    correctionText: mode === 'notebook' ? sanitizeText(body.text, MAX_PASSAGE_CHARS).trim() : undefined,
     // No audio to upload means nothing to publish: an ipa assignment is usable
     // the moment it exists.
     status: app === 'ipa' ? 'active' : 'draft',
@@ -428,7 +442,7 @@ async function createAssignment(env, body) {
     createdAt: now,
     updatedAt: now,
     dueAt,
-    attemptsLimit: clamp(body.attemptsLimit ?? 1, 0, 10),
+    attemptsLimit: mode === 'notebook' ? 1 : clamp(body.attemptsLimit ?? 1, 0, 10),
     maxListens: app === 'ipa' ? 0 : clamp(body.maxListens ?? 0, 0, 9),
     // 'end' shows the marked answers after handing in; 'sentence' additionally
     // marks each sentence the moment it is answered (see saveAnswer); 'none'
@@ -436,7 +450,8 @@ async function createAssignment(env, body) {
     // 'sentence' is dictation-only: the reading app marks in the browser and
     // only knows 'end' and 'none', so it is never stored on an ipa record.
     feedbackMode:
-      body.feedbackMode === 'none' ? 'none'
+      mode === 'notebook' ? 'release'
+        : body.feedbackMode === 'none' ? 'none'
         : body.feedbackMode === 'sentence' && app !== 'ipa' ? 'sentence'
           : 'end',
     settings:
@@ -475,7 +490,7 @@ async function createAssignment(env, body) {
 // through here or through studentMeta, so there is one place to check when
 // asking "can this response leak the passage?".
 function publicRecord(record) {
-  const { sentences: _sentences, ...rest } = record;
+  const { sentences: _sentences, correctionText: _correctionText, ...rest } = record;
   return rest;
 }
 
@@ -575,9 +590,9 @@ async function attemptDetail(env, code, studentKey, attemptId) {
   // mid-way has no stored results at all, and the teacher still needs to see
   // how far it got. (ipa results are always rebuilt from the banked scores —
   // there is nothing to regrade.)
-  const results =
-    record.app === 'ipa' ? ipaResults(record, attempt) : attempt.results || gradeResults(record, attempt);
-  return json({ attempt, results, sentences: record.sentences });
+  const results = record.mode === 'notebook' ? null
+    : record.app === 'ipa' ? ipaResults(record, attempt) : attempt.results || gradeResults(record, attempt);
+  return json({ attempt, results, sentences: record.sentences, mode: record.mode, classroomUrl: record.classroomUrl });
 }
 
 async function deleteAssignment(env, code) {
@@ -651,6 +666,9 @@ function studentMeta(record) {
   return {
     code: record.code,
     app: record.app,
+    mode: record.mode || 'typing',
+    classroomUrl: record.classroomUrl || '',
+    correctionsReleased: !!record.correctionsReleased,
     status: record.status,
     title: record.title,
     className: record.className,
@@ -683,6 +701,8 @@ function startResponse(record, attempt, resumed) {
   return json({
     attemptId: attempt.id,
     resumed,
+    submitted: !!attempt.submitted,
+    ...(record.mode === 'notebook' && attempt.submitted ? { outcome: notebookOutcome(record) } : {}),
     nextIndex: nextIndex(attempt, record.sentenceCount),
     answers: answersArray(attempt, record.sentenceCount),
     // Which of those are real: `answers` is padded with '' for every sentence
@@ -695,14 +715,12 @@ function startResponse(record, attempt, resumed) {
     ...(record.app === 'ipa'
       ? { sentences: record.sentences, scores: attempt.scores || {} }
       : null),
-  });
+  }, 200, { 'Cache-Control': 'no-store' });
 }
 
 async function startAttempt(env, code, body, request) {
   const record = await getJson(env.ASSIGN_BUCKET, recordKey(code));
   if (!record || record.status === 'draft') return fail('Assignment not found.', 404);
-  if (record.status !== 'active') return fail('This assignment is closed.', 403);
-  if (record.dueAt && Date.now() > record.dueAt) return fail('This assignment is past its due date.', 403);
 
   const token = String(body.studentToken || request?.headers.get('X-Student-Token') || '').trim();
   let student;
@@ -735,6 +753,17 @@ async function startAttempt(env, code, body, request) {
     include: ['customMetadata'],
     limit: 100,
   });
+
+  // Notebook students return here to see corrections, including after the due
+  // date or archive. Identity is verified above; a release never exposes text
+  // through the public metadata or an unfinished attempt.
+  if (record.mode === 'notebook') {
+    const handedIn = existing.filter((o) => o.customMetadata?.sub === '1')
+      .sort((a, b) => Number(b.customMetadata.upd) - Number(a.customMetadata.upd))[0];
+    if (handedIn) return startResponse(record, await getJson(env.ASSIGN_BUCKET, handedIn.key), true);
+  }
+  if (record.status !== 'active') return fail('This assignment is closed.', 403);
+  if (record.dueAt && Date.now() > record.dueAt) return fail('This assignment is past its due date.', 403);
 
   // An unfinished attempt always wins over starting a new one: a student whose
   // Chromebook died mid-dictation should carry on, not spend an attempt.
@@ -827,7 +856,7 @@ async function serveAudio(env, code, indexRaw, attemptId) {
 
   return new Response(object.body, {
     headers: {
-      'Content-Type': 'audio/mpeg',
+      'Content-Type': object.httpMetadata?.contentType || 'audio/mpeg',
       // Never cached: a cached clip would be a free replay, and the count on
       // the server would quietly stop matching what the student heard.
       'Cache-Control': 'no-store',
@@ -915,6 +944,20 @@ async function submitAttempt(env, code, body) {
   const record = await getJson(env.ASSIGN_BUCKET, recordKey(code));
   if (!record) return fail('Assignment not found.', 404);
 
+  if (record.mode === 'notebook') {
+    if (!attempt.submitted) {
+      if (body.classroomSubmitted !== true) return fail('Submit your notebook photo in Google Classroom first.');
+      attempt.submitted = true;
+      attempt.submittedAt = Date.now();
+      attempt.classroomSubmittedAt = attempt.submittedAt;
+      // Paper work is corrected by the student/teacher, never scored as blank typed answers.
+      attempt.results = null;
+      attempt.scorePercent = null;
+      await saveAttempt(env, attempt);
+    }
+    return json(notebookOutcome(record), 200, { 'Cache-Control': 'no-store' });
+  }
+
   if (!attempt.submitted) {
     if (record.app === 'ipa') {
       // The client re-sends every sentence's best score and transcript here,
@@ -990,6 +1033,8 @@ async function attemptResults(env, code, attemptId) {
   if (!attempt) return fail('Your session has expired. Please sign in again.', 401);
   if (!attempt.submitted) return fail('This attempt has not been submitted yet.', 409);
 
+  if (record.mode === 'notebook') return json(notebookOutcome(record), 200, { 'Cache-Control': 'no-store' });
+
   return json({
     results: attempt.results,
     scorePercent: attempt.scorePercent,
@@ -997,6 +1042,15 @@ async function attemptResults(env, code, attemptId) {
     listens: attempt.listens || {},
     warnings: attempt.warnings || 0,
   });
+}
+
+function notebookOutcome(record) {
+  return {
+    ok: true,
+    mode: 'notebook',
+    correctionsReleased: !!record.correctionsReleased,
+    ...(record.correctionsReleased ? { corrections: record.correctionText || record.sentences.join(' ') } : {}),
+  };
 }
 
 // -------------------------------------------------------------------- router
@@ -1038,6 +1092,17 @@ async function route(request, env) {
     if (path === '/api/teacher/assignments/create') return createAssignment(env, body);
     if (path === '/api/teacher/assignments/list') return listAssignments(env, body);
 
+    if (path === '/api/teacher/assignments/release-corrections' && method === 'POST') {
+      const code = sanitizeCode(body.code);
+      const record = code ? await getJson(env.ASSIGN_BUCKET, recordKey(code)) : null;
+      if (!record) return fail('Assignment not found.', 404);
+      if (record.mode !== 'notebook') return fail('Only notebook assignments have a correction release.');
+      if (record.status === 'draft') return fail('Publish the assignment first.');
+      record.correctionsReleased = true;
+      await saveAssignment(env, record);
+      return json({ ok: true, record: publicRecord(record) });
+    }
+
     if (path === '/api/teacher/assignments/get') {
       const code = sanitizeCode(body.code);
       return code ? assignmentDetail(env, code) : fail('Missing assignment code.');
@@ -1076,8 +1141,9 @@ async function route(request, env) {
 
       const index = parseIndex(segments[5], record.sentenceCount);
       if (index < 0) return fail('No such sentence.', 404);
-      if ((request.headers.get('Content-Type') || '').split(';')[0].trim() !== 'audio/mpeg') {
-        return fail('Audio must be sent as audio/mpeg.', 415);
+      const contentType = (request.headers.get('Content-Type') || '').split(';')[0].trim();
+      if (contentType !== 'audio/mpeg' && !(record.mode === 'notebook' && contentType === 'audio/wav')) {
+        return fail('Audio must be MP3, or WAV for notebook segments.', 415);
       }
 
       const bytes = await request.arrayBuffer();
@@ -1085,7 +1151,7 @@ async function route(request, env) {
       if (bytes.byteLength > MAX_AUDIO_BYTES) return fail('That clip is too large.', 413);
 
       await env.ASSIGN_BUCKET.put(audioKey(code, index), bytes, {
-        httpMetadata: { contentType: 'audio/mpeg' },
+        httpMetadata: { contentType },
       });
       return json({ ok: true, index });
     }
@@ -1110,7 +1176,7 @@ async function route(request, env) {
       // A draft is indistinguishable from a typo, on purpose: an unpublished
       // code should not confirm it exists.
       if (!record || record.status === 'draft') return fail('No assignment with that code.', 404);
-      return json({ meta: studentMeta(record) });
+      return json({ meta: studentMeta(record) }, 200, { 'Cache-Control': 'no-store' });
     }
 
     if (method === 'POST' && action === 'start') {

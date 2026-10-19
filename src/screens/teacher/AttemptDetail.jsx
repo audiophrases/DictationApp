@@ -42,6 +42,14 @@ function AttemptDetail({ code, attempt, onBack }) {
 
         {!data && !error ? (
           <div className="empty-note"><Loader2 size={22} className="spin" /></div>
+        ) : data?.mode === 'notebook' ? (
+          <div>
+            <h2 style={{ fontSize: '1.2rem' }}>Written in a notebook</h2>
+            <p className="field-hint">{data.attempt.submitted ? 'The student confirmed turning in their photos in Classroom.' : 'The student has not confirmed submission yet.'} Review their notebook photos in Classroom. No automatic score is assigned.</p>
+            <a className="btn-primary" href={data.classroomUrl} target="_blank" rel="noopener noreferrer">Open Classroom</a>
+            <h3 style={{ marginTop: '1.5rem' }}>Correction passage</h3>
+            <p style={{ whiteSpace: 'pre-wrap', marginTop: '0.75rem' }}>{data.sentences.join(' ')}</p>
+          </div>
         ) : results ? (
           <>
             <div className="stat-grid" style={{ marginBottom: '1.5rem' }}>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, Copy, Loader2, RefreshCw } from 'lucide-react';
-import { getAssignment } from '../../lib/assignmentApi';
+import { getAssignment, releaseCorrections } from '../../lib/assignmentApi';
 import { accuracyClass } from '../../lib/score';
 import { studentLink } from '../../lib/appLinks';
 
@@ -14,6 +14,7 @@ function formatWhen(ms) {
 function AssignmentDetail({ code, onBack, onOpenAttempt }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  const [releasing, setReleasing] = useState(false);
 
   const load = useCallback(async () => {
     setError('');
@@ -43,7 +44,7 @@ function AssignmentDetail({ code, onBack, onOpenAttempt }) {
           <p>
             <span className="code-chip">{code}</span>
             {record.className ? ` · ${record.className}` : ''}
-            {` · ${record.sentenceCount} sentences`}
+            {` · ${record.sentenceCount} ${record.mode === 'notebook' ? 'notebook segments' : 'sentences'}`}
             {record.dueAt ? ` · due ${formatWhen(record.dueAt)}` : ''}
           </p>
         )}
@@ -73,6 +74,19 @@ function AssignmentDetail({ code, onBack, onOpenAttempt }) {
           <div className="empty-note"><Loader2 size={22} className="spin" /></div>
         ) : (
           <>
+            {record.mode === 'notebook' && <div className="sentence-card" style={{ marginBottom: '1.5rem' }}>
+              <h2 style={{ fontSize: '1.1rem' }}>Notebook corrections</h2>
+              <p className="field-hint">Check the photos in Classroom before releasing the passage. Submitted students can then reopen this assignment to correct their notebooks.</p>
+              <div className="notebook-controls" style={{ justifyContent: 'flex-start', marginTop: '1rem' }}>
+                <a className="btn-ghost" href={record.classroomUrl} target="_blank" rel="noopener noreferrer">Open Classroom</a>
+                <button className="btn-primary" disabled={releasing || record.correctionsReleased || record.status === 'draft'} onClick={async () => {
+                  setReleasing(true); setError('');
+                  try { await releaseCorrections(code); await load(); }
+                  catch (err) { setError(err.message); }
+                  finally { setReleasing(false); }
+                }}>{record.correctionsReleased ? 'Corrections released' : releasing ? 'Releasing…' : 'Release corrections to students'}</button>
+              </div>
+            </div>}
             <div className="stat-grid" style={{ marginBottom: '1.5rem' }}>
               <div className="stat-cell">
                 <span className="stat-value">{attempts.length}</span>
@@ -84,9 +98,9 @@ function AssignmentDetail({ code, onBack, onOpenAttempt }) {
               </div>
               <div className="stat-cell">
                 <span className={`stat-value ${average === null ? '' : accuracyClass(average / 100)}`}>
-                  {average === null ? '—' : `${average}%`}
+                  {record.mode === 'notebook' || average === null ? '—' : `${average}%`}
                 </span>
-                <span className="stat-label">Average score</span>
+                <span className="stat-label">{record.mode === 'notebook' ? 'Corrected by hand' : 'Average score'}</span>
               </div>
               <div className="stat-cell">
                 <span className="stat-value">
@@ -121,7 +135,7 @@ function AssignmentDetail({ code, onBack, onOpenAttempt }) {
                       >
                         <td>{a.studentName}</td>
                         <td>
-                          {a.submitted ? (
+                          {a.submitted && record.mode === 'notebook' ? <span className="status-pill">Classroom submission confirmed</span> : a.submitted ? (
                             <span className={`score-badge ${accuracyClass((a.scorePercent || 0) / 100)}`}>
                               {a.scorePercent}%
                             </span>

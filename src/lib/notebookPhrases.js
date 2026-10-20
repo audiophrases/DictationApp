@@ -1,18 +1,21 @@
 import nlp from 'compromise/two';
 
 // A notebook dictation reads each sentence out a phrase at a time, the way a
-// teacher does: long enough to carry meaning (two-word scraps are too choppy to
-// hold in mind as language), short enough to remember while writing.
+// teacher does: each phrase a whole grammatical unit — who, does what, to
+// what, where — short enough to remember while writing. "Moving abroad /
+// helped him understand / his own culture." Two words are fine when they are
+// a whole unit like "Moving abroad"; scraps like "but we" never are.
 //
 // Rather than cutting greedily, every way of dividing the sentence is scored
 // and the cheapest wins: each phrase costs something (so a short sentence stays
-// whole), lengths outside 3–6 words cost more, and each cut costs or earns
-// points by what sits either side of it. Punctuation is a strong preference,
-// not a rule, so "Yes, I do." can stay together.
+// whole), lengths outside 2–6 words cost more, and each cut costs or earns
+// points by what sits either side of it, which is what rules out the scraps.
+// Punctuation is a strong preference, not a rule, so "Yes, I do." can stay
+// together.
 const MAX_SPAN = 12;
 const PHRASE_COST = 3;
-const LENGTH_COST = [Infinity, 30, 14, 2, 0, 0, 1, 4, 12];
-const lengthCost = (n) => (n < LENGTH_COST.length ? LENGTH_COST[n] : 12 + 8 * (n - 8));
+const LENGTH_COST = [Infinity, 30, 4, 0, 0, 1, 3, 7, 14];
+const lengthCost = (n) => (n < LENGTH_COST.length ? LENGTH_COST[n] : 14 + 8 * (n - 8));
 
 const PAUSE = /[,;:—–]["”’»)]*$/u;
 const STOP = /[.!?…]["”’»)]*$/u;
@@ -24,6 +27,7 @@ const SUBORDINATORS = new Set([
 ]);
 const COORDINATORS = new Set(['and', 'but', 'or', 'so', 'yet', 'nor']);
 const SUBJECT_PRONOUNS = new Set(['i', 'you', 'he', 'she', 'it', 'we', 'they']);
+const RELATIVES = new Set(['who', 'which', 'that']);
 const COMPOUND_PREPOSITIONS = [
   'in front of', 'on top of', 'in spite of', 'out of', 'because of',
   'instead of', 'next to', 'according to', 'away from', 'due to',
@@ -89,7 +93,28 @@ function isSubject(words, index) {
   // A noun phrase can't begin with its preposition: that one governs it.
   while (start < index && is(words[start], 'Preposition')) start++;
   const before = words[start - 1];
-  return !before || (!is(before, 'Preposition') && (!is(before, 'Verb') || is(before, 'Gerund')));
+  if (!before) return true;
+  if (is(before, 'Preposition')) return false;
+  if (!is(before, 'Verb') || is(before, 'Gerund')) return true;
+  // "The man who lives next door / has…": the verb belongs to a relative
+  // clause, so the whole thing describes the subject.
+  let relative = start - 2;
+  while (relative >= 0 && is(words[relative], 'Adverb')) relative--;
+  return RELATIVES.has(plain(words[relative]?.text || '')) && relative > 0
+    && is(words[relative - 1], 'Noun') && isSubject(words, relative - 1);
+}
+
+// Whether words[index] is the first real verb of its clause, so everything
+// before it — back to the last pause or linking word — is the subject, even a
+// subject with no noun in it like "Moving abroad". "-ing" forms don't count:
+// they are part of such a subject.
+function opensClause(words, index) {
+  for (let i = index - 1; i >= 0; i--) {
+    const word = words[i];
+    if (PAUSE.test(word.text) || SUBORDINATORS.has(plain(word.text)) || COORDINATORS.has(plain(word.text))) return i < index - 1;
+    if (is(word, 'Verb') && !is(word, 'Gerund')) return false;
+  }
+  return index > 0;
 }
 
 // What a cut before words[index] costs; negative means a good place.
@@ -118,11 +143,25 @@ function cutCost(words, index, lang) {
 
   else if (is(right, 'QuestionWord')) cost -= 5;
 
-  // A noun subject before its verb is a fair break; a pronoun one is not.
-  // Objects ("helped him / understand") get neither.
-  const verbStarts = is(right, 'Verb') && !is(left, 'Verb');
+  // A subject before its verb is a good break — "the farmer / walked",
+  // "Moving abroad / helped" — but a pronoun one is not ("we / should"), and
+  // an object stays with the verb that follows it ("helped him understand",
+  // "helps people connect").
+  // An adverb in front of the verb goes with it: "the mist / still covered".
+  let verb = index;
+  while (is(words[verb], 'Adverb') && !is(words[verb], 'Verb')) verb++;
+  const verbStarts = verb < words.length && is(words[verb], 'Verb') && !is(left, 'Verb') && !is(left, 'Adverb');
+  const gerundSubject = is(right, 'Verb') && is(left, 'Adverb') && opensClause(words, index)
+    && words.slice(0, index).some((word) => is(word, 'Gerund'));
   if (verbStarts && SUBJECT_PRONOUNS.has(leftWord)) cost += 12;
-  else if (verbStarts && is(left, 'Noun') && !is(left, 'Pronoun') && isSubject(words, index - 1)) cost -= 6;
+  else if (verbStarts && is(left, 'Pronoun')) cost += 12;
+  else if (gerundSubject || (verbStarts && (is(left, 'Noun') ? isSubject(words, index - 1) : opensClause(words, index)))) cost -= 7;
+  else if (verbStarts && is(left, 'Noun')) cost += 6;
+  else if (is(right, 'Verb') && is(left, 'Adverb')) cost += 6;
+
+  // After a whole verb group, the object can start a phrase of its own.
+  if (is(left, 'Verb') && !is(left, 'Auxiliary') && !is(left, 'Copula')
+    && (is(right, 'Determiner') || is(right, 'Possessive'))) cost -= 1;
 
   // Bad places: after a word that leans on the next one.
   // "the / old school" or "in front of / the" can't be said as a phrase at all;
@@ -133,7 +172,7 @@ function cutCost(words, index, lang) {
   else if (is(left, 'Negative') || is(left, 'Auxiliary') || is(left, 'Modal') || is(left, 'Copula')) cost += 15;
   if (is(left, 'Adjective') && (is(right, 'Noun') || is(right, 'Adjective'))) cost += 20;
   if (is(left, 'Adverb') && (is(right, 'Adjective') || is(right, 'Adverb'))) cost += 6;
-  if (is(left, 'Verb') && (is(right, 'Determiner') || is(right, 'Noun'))) cost += 2;
+  if (is(left, 'Verb') && is(right, 'Noun') && !is(right, 'Possessive')) cost += 2;
   return cost;
 }
 

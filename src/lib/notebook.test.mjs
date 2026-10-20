@@ -6,36 +6,37 @@ import { trimTrailingSilence, wavClip } from './notebookWav.js';
 
 const words = (phrase) => phrase.split(/\s+/).length;
 
-test('sentences split into phrases a teacher would say, not two-word scraps', () => {
+test('sentences split into the grammatical units a teacher would say', () => {
   const cases = {
+    // Subject / verb with its complement / object.
+    'Moving abroad helped him understand his own culture.': ['Moving abroad', 'helped him understand', 'his own culture.'],
+    // An object stays with the verb after it: "helps people connect".
+    'Sharing stories helps people connect across differences.': ['Sharing stories', 'helps people connect across differences.'],
+    'The statue in front of the old school was beautiful.': ['The statue', 'in front of the old school', 'was beautiful.'],
+    'The man who lives next door has not called me yet.': ['The man', 'who lives next door', 'has not called me yet.'],
     'I agree with your point, but we should consider the budget.': ['I agree with your point,', 'but we should consider the budget.'],
     'In my opinion, the long-term benefits are more important.': ['In my opinion,', 'the long-term benefits are more important.'],
     'She gave evidence to support her argument.': ['She gave evidence', 'to support her argument.'],
     'We reached a compromise after a long discussion.': ['We reached a compromise', 'after a long discussion.'],
-    "It's hard to decide when both options seem reasonable.": ["It's hard to decide", 'when both options seem reasonable.'],
+    "It's hard to decide when both options seem reasonable.": ["It's hard to decide", 'when both options', 'seem reasonable.'],
     'They challenged the proposal with specific examples.': ['They challenged the proposal', 'with specific examples.'],
     'The quick brown fox jumps over the lazy dog.': ['The quick brown fox', 'jumps over the lazy dog.'],
-    'The statue in front of the old school was beautiful.': ['The statue in front of the old school', 'was beautiful.'],
-    'The man who lives next door has not called me yet.': ['The man who lives next door', 'has not called me yet.'],
-    'Before lunch, we went home.': ['Before lunch, we went home.'],
+    'Before lunch, we went home.': ['Before lunch,', 'we went home.'],
     'Yes, I do.': ['Yes, I do.'],
-    'Moving abroad helped him understand his own culture.': ['Moving abroad helped him', 'understand his own culture.'],
     'We celebrated the festival with music and traditional food.': ['We celebrated the festival', 'with music and traditional food.'],
     'Language is a key part of personal identity.': ['Language is a key part', 'of personal identity.'],
-    'I was surprised by how quickly local customs felt natural.': ['I was surprised', 'by how quickly local customs felt natural.'],
-    // An object followed by its verb ("helps people connect") is not a subject break.
-    'Sharing stories helps people connect across differences.': ['Sharing stories helps people connect across differences.'],
+    'I was surprised by how quickly local customs felt natural.': ['I was surprised', 'by how quickly local customs', 'felt natural.'],
   };
   for (const [text, expected] of Object.entries(cases)) assert.deepEqual(segmentSentence(text), expected, text);
 });
 
-test('the farmer passage splits at its clauses and prepositions, three words or more', () => {
+test('the farmer passage splits at its clauses, subjects and prepositions', () => {
   const text = 'In the early morning, when the mist still covered the valley, the farmer walked slowly to the barn, carrying two heavy buckets of fresh water for the animals.';
   const segments = segmentSentence(text);
   assert.deepEqual(segments, [
-    'In the early morning,', 'when the mist still covered the valley,',
+    'In the early morning,', 'when the mist', 'still covered the valley,',
     'the farmer walked slowly', 'to the barn,',
-    'carrying two heavy buckets', 'of fresh water for the animals.',
+    'carrying two heavy buckets', 'of fresh water', 'for the animals.',
   ]);
   assert.equal(segments.join(' '), text);
 });
@@ -50,7 +51,7 @@ test('no phrase ends on a word that leans on the next one', () => {
     const segments = segmentSentence(text);
     assert.equal(segments.join(' '), text);
     for (const segment of segments) {
-      assert.ok(words(segment) >= 3, `too short: "${segment}"`);
+      assert.ok(words(segment) >= 2, `too short: "${segment}"`);
       assert.ok(!leaning.test(segment.split(/\s+/).at(-1).replace(/[^\p{L}]/gu, '')), `ends on a leaning word: "${segment}"`);
     }
   }

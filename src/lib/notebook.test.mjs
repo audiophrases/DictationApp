@@ -1,24 +1,60 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { notebookPlan, segmentSentence, segmentTimes, sentenceEndCue } from './notebook.js';
-import { validatedNotebookSegments } from './notebookShared.js';
+import { notebookPlan, segmentSentence, sentenceEndCue } from './notebook.js';
+import { spokenPhrase, validatedNotebookSegments } from './notebookShared.js';
 import { wavClip } from './notebookWav.js';
 
-test('short sentences split into subject and predicate phrases', () => {
-  assert.deepEqual(segmentSentence('The quick brown fox jumps over the lazy dog.'), [
-    'The quick brown fox', 'jumps over the lazy dog.',
-  ]);
-  assert.deepEqual(segmentSentence('Before lunch, we went home.'), ['Before lunch,', 'we went home.']);
+const words = (phrase) => phrase.split(/\s+/).length;
+
+test('sentences split into phrases a teacher would say, not two-word scraps', () => {
+  const cases = {
+    'I agree with your point, but we should consider the budget.': ['I agree with your point,', 'but we should consider the budget.'],
+    'In my opinion, the long-term benefits are more important.': ['In my opinion,', 'the long-term benefits are more important.'],
+    'She gave evidence to support her argument.': ['She gave evidence', 'to support her argument.'],
+    'We reached a compromise after a long discussion.': ['We reached a compromise', 'after a long discussion.'],
+    "It's hard to decide when both options seem reasonable.": ["It's hard to decide", 'when both options seem reasonable.'],
+    'They challenged the proposal with specific examples.': ['They challenged the proposal', 'with specific examples.'],
+    'The quick brown fox jumps over the lazy dog.': ['The quick brown fox', 'jumps over the lazy dog.'],
+    'The statue in front of the old school was beautiful.': ['The statue in front of the old school', 'was beautiful.'],
+    'The man who lives next door has not called me yet.': ['The man who lives next door', 'has not called me yet.'],
+    'Before lunch, we went home.': ['Before lunch, we went home.'],
+    'Yes, I do.': ['Yes, I do.'],
+  };
+  for (const [text, expected] of Object.entries(cases)) assert.deepEqual(segmentSentence(text), expected, text);
 });
 
-test('the requested farmer passage splits into small grammatical phrases', () => {
+test('the farmer passage splits at its clauses and prepositions, three words or more', () => {
   const text = 'In the early morning, when the mist still covered the valley, the farmer walked slowly to the barn, carrying two heavy buckets of fresh water for the animals.';
-  assert.deepEqual(segmentSentence(text), [
+  const segments = segmentSentence(text);
+  assert.deepEqual(segments, [
     'In the early morning,', 'when the mist still covered the valley,',
-    'the farmer', 'walked slowly', 'to the barn,',
-    'carrying two heavy buckets', 'of fresh water', 'for the animals.',
+    'the farmer walked slowly', 'to the barn,',
+    'carrying two heavy buckets', 'of fresh water for the animals.',
   ]);
-  assert.equal(segmentSentence(text).join(' '), text);
+  assert.equal(segments.join(' '), text);
+});
+
+test('no phrase ends on a word that leans on the next one', () => {
+  const leaning = /^(the|a|an|to|of|in|on|at|with|for|and|but|or|my|your|his|her|their|our|its)$/i;
+  for (const text of [
+    'We met all the children at exactly 12:30, then counted 1,000 small stones beside the river, before walking together back to the village.',
+    'The teacher asked the students to write a short story about their favourite holiday in the mountains.',
+    'My brother and his friends were playing football in the park near our house when it started to rain.',
+  ]) {
+    const segments = segmentSentence(text);
+    assert.equal(segments.join(' '), text);
+    for (const segment of segments) {
+      assert.ok(words(segment) >= 3, `too short: "${segment}"`);
+      assert.ok(!leaning.test(segment.split(/\s+/).at(-1).replace(/[^\p{L}]/gu, '')), `ends on a leaning word: "${segment}"`);
+    }
+  }
+});
+
+test('phrases that continue the sentence are voiced with a continuing comma', () => {
+  assert.equal(spokenPhrase("It's hard to decide", false), "It's hard to decide,");
+  assert.equal(spokenPhrase('I agree with your point,', false), 'I agree with your point,');
+  assert.equal(spokenPhrase('In this case:', false), 'In this case:');
+  assert.equal(spokenPhrase('when both options seem reasonable.', true), 'when both options seem reasonable.');
 });
 
 test('grammar tags do not expand contractions or split names and phrasal verbs', () => {
@@ -53,6 +89,10 @@ test('other languages get short fallback segments and preserve punctuation and q
     assert.equal(segments.join(' '), text);
     assert.ok(segments.every((segment) => segment.split(/\s+/).length <= 7));
   }
+  assert.deepEqual(
+    segmentSentence('« Quand nous sommes arrivés dans la petite ville, les enfants jouaient. »', 'fr-FR')[0],
+    '« Quand nous sommes arrivés',
+  );
 });
 
 test('sentence-ending cue follows terminal punctuation and is localized', () => {
@@ -97,16 +137,4 @@ test('numbers, clock times and URLs are not split at internal punctuation', () =
   assert.equal(segments.join(' '), text);
   assert.ok(segments.some((segment) => segment.includes('1,000')));
   assert.ok(segments.some((segment) => segment.includes('12:30')));
-});
-
-test('voice timings align contractions and elisions and cut within pauses', () => {
-  const boundaries = [
-    { text: 'L', start: 0.1, end: 0.2 }, { text: 'enfant', start: 0.2, end: 0.8 },
-    { text: 'arrive', start: 0.9, end: 1.2 }, { text: 'Hello', start: 1.8, end: 2.2 },
-    { text: 'world', start: 2.3, end: 2.8 },
-  ];
-  assert.deepEqual(segmentTimes(["L’enfant arrive,", 'Hello world.'], boundaries, 3), [[0, 1.5], [1.5, 3]]);
-  assert.deepEqual(segmentTimes(['Whole sentence.'], [], 2), [[0, 2]]);
-  assert.throws(() => segmentTimes(['Missing words,', 'Hello world.'], boundaries, 3), /timing could not be matched/);
-  assert.throws(() => segmentTimes(['Hello,', 'world.'], [{ text: 'Hello', start: 0, end: 5 }, { text: 'world', start: 6, end: 7 }], 3), /invalid segment timing/);
 });

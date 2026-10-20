@@ -290,7 +290,7 @@ function PracticeApp() {
       {prepareError && <><button className="btn-primary" onClick={startDictation}>Try again</button><button className="btn-ghost" onClick={() => setAppState('setup')}>Back to setup</button></>}
     </div></div>;
   } else if (appState === 'finished' && settings.mode === 'notebook') {
-    screen = <NotebookCompletion outcome={{ correctionsReleased: false }} onNewPassage={() => setAppState('setup')} />;
+    screen = <NotebookCompletion outcome={{ correctionsReleased: true, corrections: passage.trim() }} onNewPassage={() => setAppState('setup')} />;
   } else if (appState === 'finished') {
     screen = (
       <ResultsScreen

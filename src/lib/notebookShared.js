@@ -32,32 +32,11 @@ export function sentenceEndCue(sentence, lang = 'en-US') {
   return cues[index];
 }
 
-const normalized = (text) => text.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
-
-// Align the voice's words against each segment without relying on whitespace
-// token counts (French elisions, numbers and contractions may be tokenized differently).
-export function segmentTimes(segments, boundaries, duration) {
-  if (segments.length === 1) return [[0, duration]];
-  const words = boundaries.filter((b) => normalized(b.text));
-  const cuts = [0];
-  let cursor = 0;
-  for (const segment of segments.slice(0, -1)) {
-    const target = normalized(segment);
-    let matched = '';
-    while (cursor < words.length && matched.length < target.length) {
-      matched += normalized(words[cursor++].text);
-    }
-    if (matched !== target || cursor >= words.length) {
-      throw new Error('The voice timing could not be matched to this passage. Try simplifying its punctuation.');
-    }
-    const previousEnd = words[cursor - 1].end;
-    const nextStart = words[cursor].start;
-    const cut = (previousEnd + nextStart) / 2;
-    if (!Number.isFinite(cut) || cut <= cuts.at(-1) || cut >= duration) {
-      throw new Error('The voice returned invalid segment timing. Please try recording again.');
-    }
-    cuts.push(cut);
-  }
-  cuts.push(duration);
-  return segments.map((_, i) => [cuts[i], cuts[i + 1]]);
+// What the voice is given for one phrase. A phrase that doesn't end the
+// sentence gets a trailing comma if it has no punctuation of its own, so it is
+// read with a continuing rise rather than the drop of a finished sentence.
+// Voice text only: what students write and are marked on is the phrase itself.
+export function spokenPhrase(phrase, isLast) {
+  if (isLast || /[,;:—–]["”’»)]*$/u.test(phrase)) return phrase;
+  return `${phrase},`;
 }

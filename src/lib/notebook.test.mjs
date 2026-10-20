@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { notebookPlan, segmentSentence, sentenceEndCue } from './notebook.js';
 import { spokenPhrase, validatedNotebookSegments } from './notebookShared.js';
-import { wavClip } from './notebookWav.js';
+import { trimTrailingSilence, wavClip } from './notebookWav.js';
 
 const words = (phrase) => phrase.split(/\s+/).length;
 
@@ -19,6 +19,12 @@ test('sentences split into phrases a teacher would say, not two-word scraps', ()
     'The man who lives next door has not called me yet.': ['The man who lives next door', 'has not called me yet.'],
     'Before lunch, we went home.': ['Before lunch, we went home.'],
     'Yes, I do.': ['Yes, I do.'],
+    'Moving abroad helped him understand his own culture.': ['Moving abroad helped him', 'understand his own culture.'],
+    'We celebrated the festival with music and traditional food.': ['We celebrated the festival', 'with music and traditional food.'],
+    'Language is a key part of personal identity.': ['Language is a key part', 'of personal identity.'],
+    'I was surprised by how quickly local customs felt natural.': ['I was surprised', 'by how quickly local customs felt natural.'],
+    // An object followed by its verb ("helps people connect") is not a subject break.
+    'Sharing stories helps people connect across differences.': ['Sharing stories helps people connect across differences.'],
   };
   for (const [text, expected] of Object.entries(cases)) assert.deepEqual(segmentSentence(text), expected, text);
 });
@@ -119,6 +125,18 @@ test('punctuation recording is appended after silence within the same WAV clip',
   for (let i = 2; i < 9; i++) assert.equal(appended.getInt16(44 + i * 2, true), 0);
   assert.equal(appended.getInt16(44 + 9 * 2, true), -32768);
   assert.equal(appended.getInt16(44 + 10 * 2, true), 32767);
+});
+
+test('the punctuation cue keeps only a short tail of its trailing silence', async () => {
+  const rate = 100; // 0.15 s tail = 15 samples
+  const spoken = [0.5, -0.5, 0.5];
+  const padded = Float32Array.from([...spoken, ...Array(125).fill(0.001)]);
+  assert.equal(trimTrailingSilence(padded, rate).length, 3 + 15);
+  assert.equal(trimTrailingSilence(Float32Array.from([...spoken, 0, 0]), rate).length, 5);
+  const original = { sampleRate: rate, length: 2, getChannelData: () => Float32Array.from([0.25, 0.25]) };
+  const cue = { sampleRate: rate, length: padded.length, getChannelData: () => padded };
+  const clip = new DataView(await wavClip(original, 0, 0.02, cue).arrayBuffer());
+  assert.equal(clip.getUint32(40, true), (2 + 35 + 3 + 15) * 2);
 });
 
 test('assignment validation accepts only segment plans preserving every original word', () => {

@@ -23,6 +23,7 @@ const SUBORDINATORS = new Set([
   'whereas', 'whether', 'before', 'after', 'once', 'where', 'which', 'who', 'whom', 'whose',
 ]);
 const COORDINATORS = new Set(['and', 'but', 'or', 'so', 'yet', 'nor']);
+const SUBJECT_PRONOUNS = new Set(['i', 'you', 'he', 'she', 'it', 'we', 'they']);
 const COMPOUND_PREPOSITIONS = [
   'in front of', 'on top of', 'in spite of', 'out of', 'because of',
   'instead of', 'next to', 'according to', 'away from', 'due to',
@@ -73,9 +74,29 @@ function tagWords(sentence, english) {
   return words;
 }
 
-// What a cut between `left` and `right` costs; negative means a good place.
-function cutCost(left, right, next, lang) {
-  const is = (word, tag) => word?.tags.has(tag);
+const is = (word, tag) => !!word?.tags.has(tag);
+
+// Whether the noun ending at `index` is a sentence subject rather than the
+// object of a verb or preposition: "the farmer / walked" is a fair break,
+// "helps people / connect" is not. Walks back over the whole noun phrase,
+// including any "in front of the school" attached to it, and looks at what
+// governs it.
+const NOUN_PHRASE = ['Noun', 'Adjective', 'Determiner', 'Possessive', 'Adverb', 'Preposition'];
+function isSubject(words, index) {
+  let start = index;
+  while (start > 0 && !is(words[start - 1], 'Verb')
+    && (words[start].glued || NOUN_PHRASE.some((tag) => is(words[start - 1], tag)))) start--;
+  // A noun phrase can't begin with its preposition: that one governs it.
+  while (start < index && is(words[start], 'Preposition')) start++;
+  const before = words[start - 1];
+  return !before || (!is(before, 'Preposition') && (!is(before, 'Verb') || is(before, 'Gerund')));
+}
+
+// What a cut before words[index] costs; negative means a good place.
+function cutCost(words, index, lang) {
+  const left = words[index - 1];
+  const right = words[index];
+  const next = words[index + 1];
   const leftWord = plain(left.text);
   const rightWord = plain(right.text);
   let cost = 0;
@@ -95,16 +116,20 @@ function cutCost(left, right, next, lang) {
   else if (rightWord === 'to' && is(next, 'Verb')) cost -= 4;
   else if (is(right, 'Preposition')) cost -= 4;
 
+  else if (is(right, 'QuestionWord')) cost -= 5;
+
   // A noun subject before its verb is a fair break; a pronoun one is not.
+  // Objects ("helped him / understand") get neither.
   const verbStarts = is(right, 'Verb') && !is(left, 'Verb');
-  if (verbStarts && is(left, 'Pronoun')) cost += 12;
-  else if (verbStarts && is(left, 'Noun') && !is(left, 'Pronoun')) cost -= 6;
+  if (verbStarts && SUBJECT_PRONOUNS.has(leftWord)) cost += 12;
+  else if (verbStarts && is(left, 'Noun') && !is(left, 'Pronoun') && isSubject(words, index - 1)) cost -= 6;
 
   // Bad places: after a word that leans on the next one.
   // "the / old school" or "in front of / the" can't be said as a phrase at all;
   // "has / not called" can, but badly.
   if (leftWord === 'to' || is(left, 'Determiner') || is(left, 'Possessive')
-    || is(left, 'Preposition') || is(left, 'Conjunction')) cost += 25;
+    || is(left, 'Preposition') || is(left, 'Conjunction') || is(left, 'QuestionWord')
+    || SUBORDINATORS.has(leftWord)) cost += 25;
   else if (is(left, 'Negative') || is(left, 'Auxiliary') || is(left, 'Modal') || is(left, 'Copula')) cost += 15;
   if (is(left, 'Adjective') && (is(right, 'Noun') || is(right, 'Adjective'))) cost += 20;
   if (is(left, 'Adverb') && (is(right, 'Adjective') || is(right, 'Adverb'))) cost += 6;
@@ -121,7 +146,7 @@ export function phraseSegments(sentence, lang = 'en-US') {
   for (let end = 1; end <= words.length; end++) {
     best[end] = { cost: Infinity, from: 0 };
     for (let start = Math.max(0, end - MAX_SPAN); start < end; start++) {
-      const cut = start > 0 ? cutCost(words[start - 1], words[start], words[start + 1], base) : 0;
+      const cut = start > 0 ? cutCost(words, start, base) : 0;
       const cost = best[start].cost + PHRASE_COST + lengthCost(end - start) + cut;
       if (cost < best[end].cost) best[end] = { cost, from: start };
     }

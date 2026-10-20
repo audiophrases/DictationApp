@@ -1,3 +1,14 @@
+// The voice pads every recording with over a second of silence after the last
+// word. Kept after the punctuation cue, that was dead air before the student
+// could go on; keep only a short tail so the word doesn't stop abruptly.
+const SILENCE = 0.01;
+const TAIL_SECONDS = 0.15;
+export function trimTrailingSilence(samples, sampleRate) {
+  let last = samples.length - 1;
+  while (last >= 0 && Math.abs(samples[last]) < SILENCE) last--;
+  return samples.subarray(0, Math.min(samples.length, last + 1 + Math.round(TAIL_SECONDS * sampleRate)));
+}
+
 // Append the cue's samples to the segment's samples, with an audible pause.
 // The WAV is one clip, so Space repeats the phrase and cue together and the
 // assignment server counts them as one play. Text answers never include cues.
@@ -7,7 +18,7 @@ export function wavClip(buffer, start, end, cue = null) {
   const samples = buffer.getChannelData(0).subarray(first, last);
   if (cue && cue.sampleRate !== buffer.sampleRate) throw new Error('Punctuation audio uses a different sample rate.');
   const gap = cue ? Math.round(0.35 * buffer.sampleRate) : 0;
-  const cueSamples = cue?.getChannelData(0);
+  const cueSamples = cue && trimTrailingSilence(cue.getChannelData(0), cue.sampleRate);
   const length = samples.length + gap + (cueSamples?.length || 0);
   const bytes = new ArrayBuffer(44 + length * 2);
   const view = new DataView(bytes);

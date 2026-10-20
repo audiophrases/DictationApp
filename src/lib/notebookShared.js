@@ -1,10 +1,20 @@
 import { splitIntoSentences } from './sentences.js';
 
+const compact = (value) => value.trim().replace(/\s+/gu, ' ');
+
+// The server normalizes whitespace when it stores phrases. Compare each
+// recording separately so harmless spacing changes pass, but changed words,
+// punctuation, ordering, or phrase boundaries cannot misalign the audio.
+export function sameSegmentPlan(expected, actual) {
+  return Array.isArray(actual) && expected.length === actual.length
+    && expected.every((segment, index) => typeof actual[index] === 'string'
+      && compact(segment) === compact(actual[index]));
+}
+
 // The teacher browser supplies the phrase plan. Check it against the original
 // passage without loading the English language model in the assignment Worker.
 export function validatedNotebookSegments(text, segments) {
   if (!Array.isArray(segments) || !segments.length || segments.some((s) => typeof s !== 'string' || !s.trim())) return null;
-  const compact = (value) => value.trim().replace(/\s+/gu, ' ');
   const expected = compact(splitIntoSentences(text).join(' '));
   if (compact(segments.join(' ')) !== expected) return null;
   return segments.map(compact);

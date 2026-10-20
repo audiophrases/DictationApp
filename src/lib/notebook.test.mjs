@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { notebookPlan, segmentSentence, sentenceEndCue } from './notebook.js';
-import { spokenPhrase, validatedNotebookSegments } from './notebookShared.js';
+import { spokenPhrase, validatedNotebookSegments, sameSegmentPlan } from './notebookShared.js';
 import { trimTrailingSilence, wavClip } from './notebookWav.js';
 import { deliveryFor, dictationUnit } from './delivery.js';
 
@@ -169,6 +169,21 @@ test('assignment validation accepts only segment plans preserving every original
   assert.equal(validatedNotebookSegments(text, ['The quick fox', segments[1]]), null);
   assert.equal(validatedNotebookSegments(text, [text, 'Period']), null);
   assert.equal(validatedNotebookSegments(text, null), null);
+});
+
+test('recording plans accept server-normalized whitespace in pasted passages', () => {
+  const text = 'Today,  we are at an adventure camp. In the river,\ttwo children are swimming.\nThey wear\u00a0\u00a0bright life jackets.';
+  const expected = notebookPlan(text).flatMap((part) => part.segments);
+  const stored = validatedNotebookSegments(text, expected);
+  assert.notDeepEqual(stored, expected);
+  assert.equal(sameSegmentPlan(expected, stored), true);
+  assert.equal(sameSegmentPlan(expected, [...stored].reverse()), false);
+  assert.equal(sameSegmentPlan(expected, [stored.join(' ')]), false);
+  assert.equal(sameSegmentPlan(expected, stored.map((part) => part.replace('camp', 'school'))), false);
+  assert.equal(sameSegmentPlan(expected, stored.map((part) => part.replace('camp.', 'camp!'))), false);
+  assert.equal(sameSegmentPlan(expected, [...stored, 'Period']), false);
+  assert.equal(sameSegmentPlan(expected, null), false);
+  assert.equal(sameSegmentPlan(expected, [null, ...stored.slice(1)]), false);
 });
 
 test('numbers, clock times and URLs are not split at internal punctuation', () => {

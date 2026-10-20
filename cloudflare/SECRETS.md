@@ -6,6 +6,12 @@ account as pinplay) and backed by an R2 bucket.
 
 ## One-time setup
 
+For later code updates on Windows, double-click
+[deploy_assignments.bat](../deploy_assignments.bat) in the project root. It
+checks segmentation and assignment behavior before publishing to the account
+and Worker configured in `wrangler.toml`. Use `npm run cloudflare:login` from
+the project root if you need to sign in to Cloudflare again.
+
 ```bash
 cd cloudflare
 

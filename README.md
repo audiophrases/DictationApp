@@ -281,8 +281,17 @@ Three targets, and a push to `main` handles the first two:
    needed on the free tier. Setting `ROOT_REDIRECT_URL` there sends anyone
    opening the Render address itself on to the Pages one, while `/health` and
    `/api/*` keep answering normally.
-3. **Cloudflare** — assignments. `cd cloudflare && npx wrangler deploy`, then
-   put the worker's URL in `VITE_WORKER_BASE` (or in `src/lib/api.js`).
+3. **Cloudflare** — assignments. Double-click
+   [deploy_assignments.bat](deploy_assignments.bat), or run
+   `npm run deploy:assignments`. The batch file installs deployment tools if
+   needed, runs notebook and assignment checks, and publishes the Worker using
+   [cloudflare/wrangler.toml](cloudflare/wrangler.toml). It keeps the window
+   open to show success or errors. If needed, sign in first with
+   `npm run cloudflare:login`. Put the worker's URL in `VITE_WORKER_BASE`
+   (or in `src/lib/api.js`).
+
+Cloudflare deployments are separate from GitHub Pages and Render: after
+changing assignment behavior, run the batch file as well as pushing to `main`.
 
 Render's free tier sleeps after ~15 minutes idle. That now only affects free
 practice and recording an assignment: the app pings `/health` on load and shows

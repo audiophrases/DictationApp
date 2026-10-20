@@ -13,6 +13,7 @@ import { uploadSentenceAudio } from './assignmentApi';
 import { prepareNotebookSentence } from './notebookAudio';
 import { notebookPlan } from './notebook';
 import { deliveryFor } from './delivery';
+import { sameSegmentPlan } from './notebookShared';
 
 // Two at a time: enough to hide the round-trip latency, gentle enough that a
 // just-woken free-tier server isn't hit with twenty synthesis jobs at once.
@@ -40,11 +41,11 @@ async function synthesize(text, lang, rate) {
  */
 export async function recordSentences(code, sentences, { lang, rate, only, onSettled, mode, text, delivery: selectedDelivery }) {
   const delivery = deliveryFor({ mode, delivery: selectedDelivery });
+  const plan = notebookPlan(text, lang, delivery);
+  if (!sameSegmentPlan(plan.flatMap((part) => part.segments), sentences)) {
+    throw new Error('The assignment server returned different phrases or sentences. Deploy the current assignment Worker, then create the assignment again.');
+  }
   if (mode === 'notebook') {
-    const plan = notebookPlan(text, lang, delivery);
-    if (JSON.stringify(plan.flatMap((part) => part.segments)) !== JSON.stringify(sentences)) {
-      throw new Error('The assignment server uses a different segment plan. Update it and create the assignment again.');
-    }
     const context = new AudioContext({ sampleRate: 24000 });
     const wanted = new Set(only || sentences.map((_, i) => i));
     const failed = [];

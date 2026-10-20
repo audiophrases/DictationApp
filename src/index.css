@@ -3,6 +3,8 @@
 .notebook-container { padding: 2rem; max-width: 800px; width: 100%; margin: 0 auto; }
 .notebook-panel { display: flex; flex-direction: column; align-items: center; gap: 1.25rem; text-align: center; }
 .notebook-controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.75rem; }
+.notebook-speed { display: inline-flex; align-items: center; gap: 0.5rem; color: var(--text-muted); font-size: 0.9rem; }
+.notebook-speed select { padding: 0.45rem 2.2rem 0.45rem 0.75rem; font-size: 0.9rem; }
 .notebook-corrections { white-space: pre-wrap; text-align: left; line-height: 2; padding: 1.5rem; background: var(--surface-sunken); border-radius: 8px; width: 100%; }
 kbd { font: inherit; font-size: 0.8em; padding: 0.15rem 0.4rem; border: 1px solid currentColor; border-radius: 4px; }
 

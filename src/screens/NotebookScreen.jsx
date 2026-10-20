@@ -1,7 +1,10 @@
 import { useEffect } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen, CheckCircle, Volume2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, CheckCircle, Loader2, Volume2 } from 'lucide-react';
+import { SPEEDS } from '../lib/options';
 
-export default function NotebookScreen({ heading = 'Notebook dictation', count, index, onMove, onRepeat, onFinish, isSpeaking, replaysLeft, error }) {
+// `onRateChange` is omitted in an assignment: the teacher's speed is baked
+// into its recordings, the same rule as typing mode.
+export default function NotebookScreen({ heading = 'Notebook dictation', count, index, onMove, onRepeat, onFinish, isSpeaking, loading = false, replaysLeft, error, rate, onRateChange }) {
   const canReplay = replaysLeft === null || replaysLeft > 0;
   useEffect(() => {
     const onKey = (event) => {
@@ -30,10 +33,24 @@ export default function NotebookScreen({ heading = 'Notebook dictation', count, 
       <h2>Listen and write in your notebook</h2>
       <p className="field-hint">Listen to each segment and write by hand.</p>
       <p className="field-hint">Sentence endings are spoken aloud: for example, “period” means write a full stop, not the word “period”.</p>
-      <p aria-live="polite">{isSpeaking ? 'Playing segment…' : `Segment ${index + 1} ready`}</p>
+      <p aria-live="polite">{loading
+        ? <><Loader2 size={16} className="spin" style={{ verticalAlign: 'middle' }} /> Recording at this speed…</>
+        : isSpeaking ? 'Playing segment…' : `Segment ${index + 1} ready`}</p>
       {error && <p className="fetch-error" role="alert">{error}</p>}
       <button className="btn-primary" onClick={onRepeat} disabled={!canReplay}><Volume2 size={20} /> Repeat segment <kbd>Space</kbd></button>
       {replaysLeft !== null && <p className="field-hint">{replaysLeft} plays remaining for this segment</p>}
+      {onRateChange && (
+        <label className="notebook-speed">
+          Speed
+          <select
+            value={rate}
+            onChange={(e) => { onRateChange(parseFloat(e.target.value)); e.target.blur(); }}
+            title="Voice speed for the next playback"
+          >
+            {SPEEDS.map((s) => <option key={s.value} value={s.value}>{s.name}</option>)}
+          </select>
+        </label>
+      )}
       <div className="notebook-controls">
         <button className="btn-ghost" onClick={() => onMove(index - 1)} disabled={index === 0}><ArrowLeft size={18} /> Previous</button>
         <button className="btn-primary" onClick={() => index + 1 < count ? onMove(index + 1) : onFinish()}>

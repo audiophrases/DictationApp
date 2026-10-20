@@ -6,7 +6,8 @@ import DictationScreen from './screens/DictationScreen';
 import ResultsScreen from './screens/ResultsScreen';
 import NotebookScreen from './screens/NotebookScreen';
 import NotebookCompletion from './screens/NotebookCompletion';
-import { prepareNotebook } from './lib/notebookAudio';
+import { prepareNotebook, prepareNotebookSentence } from './lib/notebookAudio';
+import { notebookPlan } from './lib/notebook';
 import WakingOverlay from './components/WakingOverlay';
 import { splitIntoSentences } from './lib/sentences';
 import { ttsBase } from './lib/api';
@@ -69,26 +70,80 @@ function PracticeApp() {
   const [prepareProgress, setPrepareProgress] = useState('');
   const [notebookSpeaking, setNotebookSpeaking] = useState(false);
   const [notebookError, setNotebookError] = useState('');
-  const notebookClips = useRef([]);
+  // Notebook clips by speed: rate → segment index → object URL. The setup
+  // speed is recorded up front; another speed chosen mid-dictation is recorded
+  // a sentence at a time as it's needed, and kept, so switching back is instant.
+  const notebookClips = useRef(new Map());
+  const notebookSentences = useRef([]); // { sentence, start, count } per sentence
+  const notebookRecording = useRef(new Map());
+  const notebookCues = useRef(new Map());
   const notebookPlayer = useRef(null);
+  const [notebookLoading, setNotebookLoading] = useState(false);
+  const revokeNotebookClips = () => {
+    for (const clips of notebookClips.current.values()) clips.forEach((url) => url && URL.revokeObjectURL(url));
+    notebookClips.current = new Map();
+    notebookRecording.current = new Map();
+  };
   useEffect(() => () => {
-    notebookPlayer.current?.pause();
-    notebookClips.current.forEach((url) => URL.revokeObjectURL(url));
+    notebookPlayer.current?.pause?.();
+    revokeNotebookClips();
   }, []);
 
   function stopNotebook() {
-    notebookPlayer.current?.pause();
+    notebookPlayer.current?.pause?.();
     notebookPlayer.current = null;
     setNotebookSpeaking(false);
   }
 
-  function playNotebook(index) {
+  // The clip for one segment at one speed, recording its sentence if needed.
+  function notebookClip(index, rate) {
+    if (!notebookClips.current.has(rate)) notebookClips.current.set(rate, []);
+    const clips = notebookClips.current.get(rate);
+    if (clips[index]) return Promise.resolve(clips[index]);
+    const part = notebookSentences.current.find((p) => index >= p.start && index < p.start + p.count);
+    const key = `${rate}|${part.start}`;
+    if (!notebookRecording.current.has(key)) {
+      const recording = (async () => {
+        const context = new AudioContext({ sampleRate: 24000 });
+        try {
+          const blobs = await prepareNotebookSentence(part.sentence, { lang: settings.lang, rate, context, cueCache: notebookCues.current });
+          blobs.forEach((blob, i) => { clips[part.start + i] = URL.createObjectURL(blob); });
+        } finally { await context.close(); }
+      })();
+      notebookRecording.current.set(key, recording);
+      recording.catch(() => notebookRecording.current.delete(key));
+    }
+    return notebookRecording.current.get(key).then(() => clips[index]);
+  }
+
+  async function playNotebook(index, rate = settings.rate) {
     stopNotebook(); setNotebookError('');
-    const player = new Audio(notebookClips.current[index]);
+    const token = {};
+    notebookPlayer.current = token;
+    let url;
+    try {
+      if (!notebookClips.current.get(rate)?.[index]) setNotebookLoading(true);
+      url = await notebookClip(index, rate);
+    } catch {
+      if (notebookPlayer.current === token) setNotebookError('Could not record this segment at that speed. Press Space to try again.');
+      return;
+    } finally {
+      if (notebookPlayer.current === token) setNotebookLoading(false);
+    }
+    // Something else started playing (or the student moved on) meanwhile.
+    if (notebookPlayer.current !== token) return;
+    const player = new Audio(url);
     notebookPlayer.current = player;
     player.onplaying = () => { if (notebookPlayer.current === player) setNotebookSpeaking(true); };
     player.onended = () => { if (notebookPlayer.current === player) setNotebookSpeaking(false); };
     player.play().catch(() => { if (notebookPlayer.current === player) { setNotebookError('Could not play this segment. Press Space to try again.'); setNotebookSpeaking(false); } });
+  }
+
+  // A new speed applies from the next play, like typing mode's selector;
+  // the current sentence is recorded at it straight away so that play is quick.
+  function changeNotebookRate(rate) {
+    setSettings((current) => ({ ...current, rate }));
+    notebookClip(currentIndex, rate).catch(() => {});
   }
 
   useEffect(() => {
@@ -201,11 +256,16 @@ function PracticeApp() {
     if (settings.mode === 'notebook') {
       setPrepareError(''); setPrepareProgress('Recording natural sentences…'); setAppState('preparing');
       stop(); stopNotebook(); requireServer();
-      notebookClips.current.forEach((url) => URL.revokeObjectURL(url));
-      notebookClips.current = [];
+      revokeNotebookClips();
       try {
         const clips = await prepareNotebook(passage, settings, (done, total) => setPrepareProgress(`Recorded ${done} of ${total} sentences`));
-        notebookClips.current = clips.map((clip) => URL.createObjectURL(clip));
+        notebookClips.current.set(settings.rate, clips.map((clip) => URL.createObjectURL(clip)));
+        let start = 0;
+        notebookSentences.current = notebookPlan(passage, settings.lang).map(({ sentence, segments }) => {
+          const part = { sentence, start, count: segments.length };
+          start += segments.length;
+          return part;
+        });
         setSentences(clips.map(() => ''));
         setCurrentIndex(0); setListenCounts(clips.map(() => 0)); setAppState('ready');
       } catch (err) { setPrepareError(err.message); }
@@ -308,7 +368,8 @@ function PracticeApp() {
     screen = <NotebookScreen count={sentences.length} index={currentIndex}
       onMove={(index) => { setCurrentIndex(index); playNotebook(index); }}
       onRepeat={() => playNotebook(currentIndex)} onFinish={() => { stopNotebook(); setAppState('finished'); }}
-      isSpeaking={notebookSpeaking} replaysLeft={null} error={notebookError} />;
+      isSpeaking={notebookSpeaking} loading={notebookLoading} replaysLeft={null} error={notebookError}
+      rate={settings.rate} onRateChange={changeNotebookRate} />;
   } else if (appState === 'dictating') {
     screen = (
       <DictationScreen

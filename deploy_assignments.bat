@@ -19,7 +19,8 @@ if errorlevel 1 (
   goto failed
 )
 
-if not exist "node_modules\wrangler\bin\wrangler.js" (
+node -e "process.exit(require('./node_modules/wrangler/package.json').version === require('./package.json').devDependencies.wrangler ? 0 : 1)" >nul 2>nul
+if errorlevel 1 (
   echo Installing the project's deployment tools...
   call npm ci --include=dev
   if errorlevel 1 goto failed

@@ -4,6 +4,7 @@ import { getAttempt } from '../../lib/assignmentApi';
 import DiffText from '../../components/DiffText';
 import DiffLegend from '../../components/DiffLegend';
 import { accuracyClass } from '../../lib/score';
+import { dictationUnit } from '../../lib/delivery';
 
 function AttemptDetail({ code, attempt, onBack }) {
   const [data, setData] = useState(null);
@@ -19,6 +20,7 @@ function AttemptDetail({ code, attempt, onBack }) {
   }, [code, attempt.studentKey, attempt.id]);
 
   const results = data?.results;
+  const unit = dictationUnit(data || {});
   const listens = data?.attempt?.listens || {};
 
   return (
@@ -79,7 +81,7 @@ function AttemptDetail({ code, attempt, onBack }) {
                 <div key={i} className="sentence-card">
                   <div className="sentence-card-header">
                     <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                      Sentence {i + 1}
+                      {unit === 'segment' ? 'Segment' : 'Sentence'} {i + 1}
                       {listens[i] ? ` · played ${listens[i]}×` : ' · never played'}
                     </span>
                     <span className={`score-badge ${accuracyClass(s.accuracy)}`}>
@@ -90,7 +92,7 @@ function AttemptDetail({ code, attempt, onBack }) {
                     <DiffText segments={s.segments} typedBy="The student" />
                   </div>
                   {!s.typed.trim() && (
-                    <p className="field-hint">No answer typed for this sentence.</p>
+                    <p className="field-hint">No answer typed for this {unit}.</p>
                   )}
                 </div>
               ))}

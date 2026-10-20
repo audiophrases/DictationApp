@@ -3,6 +3,7 @@ import { ArrowLeft, Copy, Loader2, RefreshCw } from 'lucide-react';
 import { getAssignment, releaseCorrections } from '../../lib/assignmentApi';
 import { accuracyClass } from '../../lib/score';
 import { studentLink } from '../../lib/appLinks';
+import { dictationUnit } from '../../lib/delivery';
 
 function formatWhen(ms) {
   if (!ms) return '—';
@@ -44,7 +45,7 @@ function AssignmentDetail({ code, onBack, onOpenAttempt }) {
           <p>
             <span className="code-chip">{code}</span>
             {record.className ? ` · ${record.className}` : ''}
-            {` · ${record.sentenceCount} ${record.mode === 'notebook' ? 'notebook segments' : 'sentences'}`}
+            {` · ${record.sentenceCount} ${record.mode === 'notebook' ? 'notebook ' : ''}${dictationUnit(record)}${record.sentenceCount !== 1 ? 's' : ''}`}
             {record.dueAt ? ` · due ${formatWhen(record.dueAt)}` : ''}
           </p>
         )}

@@ -21,6 +21,7 @@ function DictationScreen({
   rate,
   onRateChange, // omitted in an assignment: the speed is baked into the audio
   heading = 'Dictation in Progress',
+  unit = 'sentence',
   error,
   // Per-sentence feedback. `feedback` is `{ grade }` for the sentence just
   // answered (grade null if it could not be marked), shown in place of the
@@ -67,7 +68,7 @@ function DictationScreen({
     <div className="app-container" style={{ padding: '2rem', maxWidth: '800px', margin: '0 auto' }}>
       <div className="app-header">
         <h1>{heading}</h1>
-        <p>Sentence {currentIndex + 1} of {sentenceCount}</p>
+        <p>{unit === 'segment' ? 'Segment' : 'Sentence'} {currentIndex + 1} of {sentenceCount}</p>
       </div>
 
       <div className="progress-track" style={{ marginBottom: '1.5rem' }}>
@@ -80,7 +81,7 @@ function DictationScreen({
             className="btn-primary"
             onClick={onRepeat}
             disabled={!canReplay}
-            title={canReplay ? 'Listen Again (Alt + R)' : 'No replays left for this sentence'}
+            title={canReplay ? 'Listen Again (Alt + R)' : `No replays left for this ${unit}`}
           >
             <Volume2 size={20} className={isSpeaking ? 'speaking-pulse' : ''} />
             {isSpeaking ? 'Speaking…' : 'Listen Again'}
@@ -117,6 +118,7 @@ function DictationScreen({
 
         {feedback ? (
           <SentenceFeedback
+            unit={unit}
             grade={feedback.grade}
             onContinue={onContinue}
             isLast={currentIndex + 1 >= sentenceCount}
@@ -135,7 +137,7 @@ function DictationScreen({
           autoCorrect="off"
           autoCapitalize="off"
           autoComplete="off"
-          placeholder="Type what you hear... (Press Enter to submit sentence)"
+          placeholder={`Type what you hear... (Press Enter to submit ${unit})`}
           autoFocus
           disabled={marking}
         />
@@ -159,11 +161,11 @@ function DictationScreen({
                 className="btn-primary"
                 onClick={onSubmit}
                 disabled={!studentInput.trim() || marking}
-                title="Submit Sentence (Enter)"
+                title={`Submit ${unit === 'segment' ? 'Segment' : 'Sentence'} (Enter)`}
               >
                 {marking
                   ? <><Loader2 size={18} className="spin" /> Marking…</>
-                  : <>Submit Sentence <Play size={18} /></>}
+                  : <>Submit {unit === 'segment' ? 'Segment' : 'Sentence'} <Play size={18} /></>}
               </button>
             )}
           </div>

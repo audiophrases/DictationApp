@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft, Check, Copy, Loader2, Mic, RefreshCw } from 'lucide-react';
-import { splitIntoSentences } from '../../lib/sentences';
 import { SPEEDS, LANGUAGES, REPLAY_LIMITS, FEEDBACK_MODES } from '../../lib/options';
 import { DEFAULT_GRADING_OPTIONS } from '../../lib/grading';
 import { createAssignment, publishAssignment } from '../../lib/assignmentApi';
@@ -8,6 +7,7 @@ import { recordSentences } from '../../lib/buildAssignment';
 import { studentLink } from '../../lib/appLinks';
 import MarkingRules from '../../components/MarkingRules';
 import { notebookPlan } from '../../lib/notebook';
+import { deliveryFor, dictationUnit } from '../../lib/delivery';
 
 // A date input gives a day, and homework is due at the end of that day rather
 // than at midnight as it starts.
@@ -29,6 +29,8 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
   const [attemptsLimit, setAttemptsLimit] = useState(1);
   const [feedbackMode, setFeedbackMode] = useState('end');
   const [mode, setMode] = useState('typing');
+  const [selectedDelivery, setDelivery] = useState('');
+  const delivery = deliveryFor({ mode, delivery: selectedDelivery });
   // Starts from the app-wide defaults so a new assignment marks the way free
   // practice does unless the teacher says otherwise — one place to change, not two.
   const [grading, setGrading] = useState({ ...DEFAULT_GRADING_OPTIONS });
@@ -41,10 +43,10 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
 
-  const notebookSegments = useMemo(() => mode === 'notebook'
-    ? notebookPlan(passage, lang).flatMap((p) => p.segments) : null, [mode, passage, lang]);
-  const previewCount = notebookSegments?.length ?? splitIntoSentences(passage).length;
-  const unit = mode === 'notebook' ? 'segment' : 'sentence';
+  const segments = useMemo(() => notebookPlan(passage, lang, delivery)
+    .flatMap((p) => p.segments), [passage, lang, delivery]);
+  const previewCount = segments.length;
+  const unit = dictationUnit({ delivery });
 
   async function finish(assignmentCode) {
     try {
@@ -65,6 +67,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
       rate,
       only,
       mode,
+      delivery,
       text: passage,
       onSettled: (_index, failure) => {
         setRecorded((n) => n + 1);
@@ -84,7 +87,8 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
       const { code: newCode, sentences: list } = await createAssignment({
         text: passage,
         mode,
-        notebookSegments,
+        delivery,
+        segments,
         title,
         className,
         dueAt: endOfDay(due),
@@ -130,7 +134,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
           <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>
             {sentences.length} {unit}{sentences.length !== 1 ? 's' : ''} recorded. {mode === 'notebook'
               ? 'Students write by hand and wait for you to release corrections.'
-              : 'Students hear each sentence before typing their answer.'}
+              : `Students hear each ${unit} before typing their answer.`}
           </p>
 
           <div className="assignment-code">{code}</div>
@@ -161,7 +165,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
           <Mic size={36} className="fetch-panel-icon" style={{ margin: '0 auto' }} />
           <h2 style={{ fontSize: '1.4rem', marginTop: '0.5rem' }}>Recording the {unit}s</h2>
           <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-            {mode === 'notebook' ? 'Complete sentences are recorded naturally first, then cut into short phrases. A spoken punctuation cue is added at each sentence ending. ' : 'Each sentence is recorded and stored now. '}
+            Each {unit} is recorded and stored now. {mode === 'notebook' && 'A spoken punctuation cue is added at each sentence ending. '}
             Your students never wait for a voice server. The first recording can take a moment while it wakes up.
           </p>
 
@@ -212,7 +216,17 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
               <option value="typing">Type answers in the app</option>
               <option value="notebook">Notebook — write by hand</option>
             </select>
-            {mode === 'notebook' && <p className="field-hint">Space repeats a segment; Enter advances; arrow keys navigate. No marking is shown. You release the passage for corrections when students are ready.</p>}
+            {mode === 'notebook' && <p className="field-hint">Space repeats a {unit}; Enter advances; arrow keys navigate. No marking is shown. You release the passage for corrections when students are ready.</p>}
+          </div>
+          <div>
+            <label className="field-label" htmlFor="assignment-delivery">Read in</label>
+            <select id="assignment-delivery" value={delivery} onChange={(e) => setDelivery(e.target.value)} style={{ width: '100%' }}>
+              <option value="sentences">Full sentences</option>
+              <option value="phrases">Short phrases (segmented)</option>
+            </select>
+            <p className="field-hint">{delivery === 'phrases'
+              ? `Students hear one short phrase at a time.${mode === 'typing' ? ' Each segment is typed and marked separately.' : ''}`
+              : 'Students hear one complete sentence at a time.'}</p>
           </div>
           <div className="settings-grid">
             <div>
@@ -253,7 +267,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
                 onChange={(e) => setMaxListens(parseInt(e.target.value, 10))}
                 style={{ width: '100%' }}
               >
-                {REPLAY_LIMITS.map((r) => <option key={r.value} value={r.value}>{r.name}</option>)}
+                {REPLAY_LIMITS.map((r) => <option key={r.value} value={r.value}>{r.name.replace('sentence', unit)}</option>)}
               </select>
             </div>
           </div>
@@ -280,7 +294,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
                 style={{ width: '100%' }}
               >
                 {FEEDBACK_MODES.map((m) => (
-                  <option key={m.value} value={m.value}>{m.name}</option>
+                  <option key={m.value} value={m.value}>{m.name.replace('sentence', unit)}</option>
                 ))}
                 <option value="none">Nothing</option>
               </select>
@@ -306,7 +320,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
               style={{ minHeight: '180px' }}
             />
             <p className="field-hint">
-              {previewCount} {unit}{previewCount !== 1 ? 's' : ''} — {mode === 'notebook' ? 'short phrases, usually 2–7 words, keeping the original voice phrasing. Sentence endings are announced aloud.' : 'one recording each.'}
+              {previewCount} {unit}{previewCount !== 1 ? 's' : ''} — {delivery === 'phrases' ? 'short grammatical phrases.' : 'full sentences.'} {mode === 'notebook' && 'Sentence endings are announced aloud.'}
             </p>
           </div>
 

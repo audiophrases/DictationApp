@@ -33,6 +33,7 @@
 import { gradeDictation, gradeSentence, DEFAULT_GRADING_OPTIONS } from '../src/lib/grading.js';
 import { splitIntoSentences } from '../src/lib/sentences.js';
 import { validatedNotebookSegments } from '../src/lib/notebookShared.js';
+import { deliveryFor } from '../src/lib/delivery.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -47,7 +48,7 @@ const CORS_HEADERS = {
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MAX_AUDIO_BYTES = 5 * 1024 * 1024;
 const MAX_SENTENCES = 60;
-const MAX_NOTEBOOK_SEGMENTS = 240;
+const MAX_SEGMENTS = 240;
 const MAX_PASSAGE_CHARS = 20000;
 const MAX_ANSWER_CHARS = 2000;
 // ipa sentences arrive pre-split (one lesson line each); 500 matches the TTS
@@ -397,8 +398,10 @@ async function nextCode(env) {
 async function createAssignment(env, body) {
   const app = body.app === 'ipa' ? 'ipa' : 'dictation';
   const mode = app !== 'ipa' && body.mode === 'notebook' ? 'notebook' : 'typing';
-  if (mode === 'notebook' && String(body.text || '').length > MAX_PASSAGE_CHARS) {
-    return fail(`Notebook passages are limited to ${MAX_PASSAGE_CHARS} characters.`);
+  const delivery = app === 'ipa' ? 'sentences' : deliveryFor({ mode, delivery: body.delivery });
+  const usesPhrases = delivery === 'phrases';
+  if ((mode === 'notebook' || usesPhrases) && String(body.text || '').length > MAX_PASSAGE_CHARS) {
+    return fail(`Dictation passages are limited to ${MAX_PASSAGE_CHARS} characters.`);
   }
 
   let sentences;
@@ -414,18 +417,18 @@ async function createAssignment(env, body) {
     if (mode === 'notebook' && splitIntoSentences(passage).some((sentence) => sentence.length > 3000)) {
       return fail('A sentence is too long for the voice server (maximum 3000 characters). Add sentence breaks and try again.');
     }
-    // Typed answers are split and graded here. The teacher browser computes
-    // notebook phrases; validate them without loading a language model in the
-    // Worker. Students receive only the resulting clip count and audio.
-    sentences = mode === 'notebook'
-      ? validatedNotebookSegments(passage, body.notebookSegments)
+    // The teacher browser computes phrases for either mode. Validate that
+    // they preserve the passage without loading a language model here.
+    // notebookSegments supports older teacher clients.
+    sentences = usesPhrases
+      ? validatedNotebookSegments(passage, body.segments ?? body.notebookSegments)
       : splitIntoSentences(passage);
-    if (!sentences) return fail('The notebook phrase plan does not match the passage. Reload the app and try again.');
+    if (!sentences) return fail('The phrase plan does not match the passage. Reload the app and try again.');
   }
   if (sentences.length === 0) return fail('The passage is empty.');
-  const limit = mode === 'notebook' ? MAX_NOTEBOOK_SEGMENTS : MAX_SENTENCES;
+  const limit = usesPhrases ? MAX_SEGMENTS : MAX_SENTENCES;
   if (sentences.length > limit) {
-    return fail(`That passage is ${sentences.length} ${mode === 'notebook' ? 'segments' : 'sentences'}; the limit is ${limit}.`);
+    return fail(`That passage is ${sentences.length} ${usesPhrases ? 'segments' : 'sentences'}; the limit is ${limit}.`);
   }
 
   const now = Date.now();
@@ -434,6 +437,7 @@ async function createAssignment(env, body) {
     code: await nextCode(env),
     app,
     mode,
+    delivery,
     correctionsReleased: false,
     correctionText: mode === 'notebook' ? sanitizeText(body.text, MAX_PASSAGE_CHARS).trim() : undefined,
     // No audio to upload means nothing to publish: an ipa assignment is usable
@@ -594,7 +598,7 @@ async function attemptDetail(env, code, studentKey, attemptId) {
   // there is nothing to regrade.)
   const results = record.mode === 'notebook' ? null
     : record.app === 'ipa' ? ipaResults(record, attempt) : attempt.results || gradeResults(record, attempt);
-  return json({ attempt, results, sentences: record.sentences, mode: record.mode });
+  return json({ attempt, results, sentences: record.sentences, mode: record.mode, delivery: deliveryFor(record) });
 }
 
 async function deleteAssignment(env, code) {
@@ -669,6 +673,7 @@ function studentMeta(record) {
     code: record.code,
     app: record.app,
     mode: record.mode || 'typing',
+    delivery: deliveryFor(record),
     correctionsReleased: !!record.correctionsReleased,
     status: record.status,
     title: record.title,

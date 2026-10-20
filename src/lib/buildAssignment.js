@@ -12,6 +12,7 @@ import { ttsBase } from './api';
 import { uploadSentenceAudio } from './assignmentApi';
 import { prepareNotebookSentence } from './notebookAudio';
 import { notebookPlan } from './notebook';
+import { deliveryFor } from './delivery';
 
 // Two at a time: enough to hide the round-trip latency, gentle enough that a
 // just-woken free-tier server isn't hit with twenty synthesis jobs at once.
@@ -37,9 +38,10 @@ async function synthesize(text, lang, rate) {
  *
  * Returns the indexes that did not make it.
  */
-export async function recordSentences(code, sentences, { lang, rate, only, onSettled, mode, text }) {
+export async function recordSentences(code, sentences, { lang, rate, only, onSettled, mode, text, delivery: selectedDelivery }) {
+  const delivery = deliveryFor({ mode, delivery: selectedDelivery });
   if (mode === 'notebook') {
-    const plan = notebookPlan(text, lang);
+    const plan = notebookPlan(text, lang, delivery);
     if (JSON.stringify(plan.flatMap((part) => part.segments)) !== JSON.stringify(sentences)) {
       throw new Error('The assignment server uses a different segment plan. Update it and create the assignment again.');
     }
@@ -55,7 +57,7 @@ export async function recordSentences(code, sentences, { lang, rate, only, onSet
         if (!indexes.length) continue;
         let clips;
         try {
-          clips = await prepareNotebookSentence(part.sentence, { lang, rate, context, cueCache });
+          clips = await prepareNotebookSentence(part.sentence, { lang, rate, context, cueCache, delivery });
         } catch (error) {
           for (const index of indexes) { failed.push(index); onSettled?.(index, error); }
           continue;

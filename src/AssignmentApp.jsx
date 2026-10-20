@@ -5,6 +5,7 @@ import DictationScreen from './screens/DictationScreen';
 import ResultsScreen from './screens/ResultsScreen';
 import NotebookScreen from './screens/NotebookScreen';
 import NotebookCompletion from './screens/NotebookCompletion';
+import { dictationUnit } from './lib/delivery';
 import { useAssignmentAudio } from './useAssignmentAudio';
 import { clearStudentSession, readStudentSession } from './lib/studentAuth';
 import {
@@ -333,6 +334,7 @@ function AssignmentApp({ code }) {
     );
     return (
       <ResultsScreen
+        unit={dictationUnit(meta)}
         grade={outcome.results}
         sentences={outcome.results.sentences.map((s) => s.original)}
         typedSentences={outcome.results.sentences.map((s) => s.typed)}
@@ -353,7 +355,7 @@ function AssignmentApp({ code }) {
   }
 
   if (meta?.mode === 'notebook') {
-    return <NotebookScreen heading={meta.title} count={meta.sentenceCount} index={currentIndex}
+    return <NotebookScreen heading={meta.title} count={meta.sentenceCount} index={currentIndex} unit={dictationUnit(meta)}
       onMove={(index) => {
         stop();
         saveAnswer(code, attemptId, currentIndex, '').catch(() => {});
@@ -367,6 +369,7 @@ function AssignmentApp({ code }) {
 
   return (
     <DictationScreen
+      unit={dictationUnit(meta)}
       heading={meta.title}
       sentenceCount={meta.sentenceCount}
       currentIndex={currentIndex}

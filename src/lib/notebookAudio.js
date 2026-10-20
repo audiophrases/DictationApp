@@ -2,6 +2,7 @@ import { ttsBase } from './api';
 import { notebookPlan } from './notebook';
 import { sentenceEndCue, spokenPhrase } from './notebookShared';
 import { wavClip } from './notebookWav';
+import { deliveryFor } from './delivery';
 
 async function speak(text, { lang, rate, context }) {
   const query = new URLSearchParams({ text, lang, rate });
@@ -24,8 +25,8 @@ function punctuationAudio(label, { lang, rate, context, cueCache }) {
 // sentence at the voice's word timings clipped word endings: in natural speech
 // the words run together with ~10 ms between them, so there is no silence to
 // cut in, and Edge's voices refuse SSML <break> tags that would make one.
-export async function prepareNotebookSentence(sentence, { lang, rate, context, cueCache = new Map() }) {
-  const [{ segments }] = notebookPlan(sentence, lang);
+export async function prepareNotebookSentence(sentence, { lang, rate, context, delivery = 'phrases', cueCache = new Map() }) {
+  const [{ segments }] = notebookPlan(sentence, lang, delivery);
   const label = sentenceEndCue(sentence, lang);
   const [cue, ...buffers] = await Promise.all([
     label ? punctuationAudio(label, { lang, rate, context, cueCache }) : null,
@@ -39,9 +40,10 @@ export async function prepareNotebook(text, settings, onProgress) {
   const clips = [];
   const cueCache = new Map();
   try {
-    const plan = notebookPlan(text, settings.lang);
+    const delivery = deliveryFor({ ...settings, mode: 'notebook' });
+    const plan = notebookPlan(text, settings.lang, delivery);
     for (let i = 0; i < plan.length; i++) {
-      clips.push(...await prepareNotebookSentence(plan[i].sentence, { ...settings, context, cueCache }));
+      clips.push(...await prepareNotebookSentence(plan[i].sentence, { ...settings, delivery, context, cueCache }));
       onProgress?.(i + 1, plan.length);
     }
     return clips;

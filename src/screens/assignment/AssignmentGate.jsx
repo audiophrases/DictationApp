@@ -3,6 +3,7 @@ import { Headphones, Loader2, LogIn, RefreshCw } from 'lucide-react';
 import { getAssignmentMeta, recallAttempt } from '../../lib/assignmentApi';
 import { clearStudentSession, getStudentConfig, readStudentSession, signInWithGoogle } from '../../lib/studentAuth';
 import GoogleSignIn from '../../components/GoogleSignIn';
+import { dictationUnit } from '../../lib/delivery';
 
 function formatDue(ms) {
   if (!ms) return null;
@@ -13,6 +14,7 @@ function formatDue(ms) {
 
 function AssignmentGate({ code, onStart, starting, startError, onIdentityChange }) {
   const [meta, setMeta] = useState(null);
+  const unit = dictationUnit(meta || {});
   const [loadError, setLoadError] = useState('');
   const [config, setConfig] = useState(null);
   const [authError, setAuthError] = useState('');
@@ -109,11 +111,11 @@ function AssignmentGate({ code, onStart, starting, startError, onIdentityChange 
         <div className="passage-cover" style={{ minHeight: 'auto', marginBottom: '1.25rem' }}>
           <Headphones size={20} className="passage-cover-icon" />
           <div>
-            <div className="passage-cover-title">{meta.sentenceCount} {meta.mode === 'notebook' ? 'segments to write by hand' : `sentence${meta.sentenceCount !== 1 ? 's' : ''} to type`}</div>
+            <div className="passage-cover-title">{meta.sentenceCount} {unit}{meta.sentenceCount !== 1 ? 's' : ''} {meta.mode === 'notebook' ? 'to write by hand' : 'to type'}</div>
             <div className="passage-cover-sub">
               {meta.maxListens === 0
-                ? `You can replay each ${meta.mode === 'notebook' ? 'segment' : 'sentence'} as often as you like.`
-                : `${meta.maxListens} replay${meta.maxListens !== 1 ? 's' : ''} per ${meta.mode === 'notebook' ? 'segment' : 'sentence'}.`}
+                ? `You can replay each ${unit} as often as you like.`
+                : `${meta.maxListens} replay${meta.maxListens !== 1 ? 's' : ''} per ${unit}.`}
               {due ? ` Due ${due}.` : ''}
             </div>
           </div>

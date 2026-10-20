@@ -13,7 +13,7 @@ import { accuracyClass, reviewSummary, reviewTiles } from '../lib/score';
 // failed). The panel still appears then, with nothing to show: the student's
 // click to continue is what starts the next sentence, and that has to stay a
 // click for the audio to be allowed to play (see useAssignmentAudio).
-function SentenceFeedback({ grade, onContinue, isLast }) {
+function SentenceFeedback({ grade, onContinue, isLast, unit = 'sentence' }) {
   const buttonRef = useRef(null);
   // The answer box just lost focus along with the sentence, so focus lands on
   // the one thing to do next and Enter keeps meaning "carry on". But a second
@@ -43,7 +43,7 @@ function SentenceFeedback({ grade, onContinue, isLast }) {
   const next = (
     <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
       <button ref={buttonRef} className="btn-primary" onClick={carryOn} onKeyDown={handleKeyDown}>
-        {isLast ? 'See results' : 'Next sentence'} <ArrowRight size={18} />
+        {isLast ? 'See results' : `Next ${unit}`} <ArrowRight size={18} />
       </button>
     </div>
   );

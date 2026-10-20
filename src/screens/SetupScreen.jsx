@@ -5,6 +5,7 @@ import { SPEEDS, LANGUAGES, FETCH_SUPPORTED, REPLAY_LIMITS, FEEDBACK_MODES, lang
 import { hasLessons, fetchLessons } from '../lib/lessons';
 import SourceCitation from '../components/SourceCitation';
 import { notebookPlan } from '../lib/notebook';
+import { deliveryFor, dictationUnit } from '../lib/delivery';
 
 function SetupScreen({
   passage,
@@ -20,8 +21,10 @@ function SetupScreen({
   const sentenceCount = splitIntoSentences(passage).length;
   const wordCount = countWords(passage);
   const notebook = settings.mode === 'notebook';
-  const segmentCount = useMemo(() => notebook
-    ? notebookPlan(passage, settings.lang).flatMap((p) => p.segments).length : 0, [notebook, passage, settings.lang]);
+  const delivery = deliveryFor(settings);
+  const unit = dictationUnit(settings);
+  const segmentCount = useMemo(() => notebookPlan(passage, settings.lang, delivery)
+    .flatMap((p) => p.segments).length, [passage, settings.lang, delivery]);
   const canFetch = FETCH_SUPPORTED.has(settings.lang);
   const langName = languageName(settings.lang);
 
@@ -73,7 +76,17 @@ function SetupScreen({
               <option value="typing">Type answers in the app</option>
               <option value="notebook">Notebook — write by hand</option>
             </select>
-            {notebook && <p className="field-hint">Listen to short segments and write in your notebook. Space repeats, Enter advances, and arrow keys navigate.</p>}
+            {notebook && <p className="field-hint">Listen and write in your notebook. Space repeats, Enter advances, and arrow keys navigate.</p>}
+          </div>
+          <div>
+            <label className="field-label" htmlFor="practice-delivery">Read in</label>
+            <select id="practice-delivery" value={delivery} onChange={(e) => updateSetting('delivery', e.target.value)} style={{ width: '100%' }}>
+              <option value="sentences">Full sentences</option>
+              <option value="phrases">Short phrases (segmented)</option>
+            </select>
+            <p className="field-hint">{delivery === 'phrases'
+              ? `Hear one short phrase at a time. ${notebook ? 'Advance when you are ready.' : 'Type and submit each segment separately.'}`
+              : 'Hear one complete sentence at a time.'}</p>
           </div>
           <div className="settings-grid">
             <div>
@@ -108,7 +121,7 @@ function SetupScreen({
                 style={{ width: '100%' }}
               >
                 {REPLAY_LIMITS.map((r) => (
-                  <option key={r.value} value={r.value}>{r.name}</option>
+                  <option key={r.value} value={r.value}>{r.name.replace('sentence', unit)}</option>
                 ))}
               </select>
             </div>}
@@ -120,7 +133,7 @@ function SetupScreen({
                 style={{ width: '100%' }}
               >
                 {FEEDBACK_MODES.map((m) => (
-                  <option key={m.value} value={m.value}>{m.name}</option>
+                  <option key={m.value} value={m.value}>{m.name.replace('sentence', unit)}</option>
                 ))}
               </select>
             </div>}
@@ -238,7 +251,7 @@ function SetupScreen({
                 />
                 {passage.trim() && (
                   <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                    {sentenceCount} sentence{sentenceCount !== 1 ? 's' : ''} · {wordCount} word{wordCount !== 1 ? 's' : ''}
+                    {sentenceCount} sentence{sentenceCount !== 1 ? 's' : ''}{delivery === 'phrases' ? ` · ${segmentCount} segments` : ''} · {wordCount} word{wordCount !== 1 ? 's' : ''}
                   </p>
                 )}
                 <SourceCitation source={passageSource} />
@@ -252,7 +265,7 @@ function SetupScreen({
             onClick={onStart}
             disabled={!passage.trim()}
           >
-            <Play size={24} /> {notebook ? `Prepare notebook dictation (${segmentCount} segments)` : 'Start Dictation Session'}
+            <Play size={24} /> {notebook ? `Prepare notebook dictation (${segmentCount} ${unit}${segmentCount !== 1 ? 's' : ''})` : `Start Dictation Session (${segmentCount} ${unit}${segmentCount !== 1 ? 's' : ''})`}
           </button>
         </div>
       </div>

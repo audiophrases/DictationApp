@@ -6,6 +6,13 @@ passage from a plain-language encyclopedia. Teachers can also set a passage as
 an assignment: students sign in with the same school Google account as PinPlay, and the text stays
 hidden until they have handed their work in.
 
+Practice setup and assignment creation both offer **Read in**: choose **Full
+sentences** or **Short phrases (segmented)**, whether answers are typed in the
+app or written in a notebook. Typed phrases are submitted and marked separately;
+notebook recordings announce punctuation at each sentence ending. Existing
+settings and assignments keep their defaults: full sentences for typing and
+short phrases for notebooks.
+
 ## Where the app runs
 
 Three pieces, in three places, for one reason each:

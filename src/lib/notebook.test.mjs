@@ -3,8 +3,29 @@ import { test } from 'node:test';
 import { notebookPlan, segmentSentence, sentenceEndCue } from './notebook.js';
 import { spokenPhrase, validatedNotebookSegments } from './notebookShared.js';
 import { trimTrailingSilence, wavClip } from './notebookWav.js';
+import { deliveryFor, dictationUnit } from './delivery.js';
 
 const words = (phrase) => phrase.split(/\s+/).length;
+
+test('both writing modes support phrases and full sentences, preserving existing defaults', () => {
+  const text = 'Before lunch, we went home. Look at Mark!';
+  for (const mode of ['typing', 'notebook']) {
+    for (const delivery of ['phrases', 'sentences']) {
+      const settings = { mode, delivery };
+      const plan = notebookPlan(text, 'en-US', deliveryFor(settings));
+      assert.deepEqual(plan.map((part) => part.sentence), ['Before lunch, we went home.', 'Look at Mark!']);
+      assert.deepEqual(plan.flatMap((part) => part.segments), delivery === 'phrases'
+        ? ['Before lunch,', 'we went home.', 'Look at Mark!']
+        : ['Before lunch, we went home.', 'Look at Mark!']);
+      assert.equal(dictationUnit(settings), delivery === 'phrases' ? 'segment' : 'sentence');
+    }
+  }
+  assert.equal(deliveryFor(), 'sentences');
+  assert.equal(deliveryFor({ mode: 'typing' }), 'sentences');
+  assert.equal(deliveryFor({ mode: 'notebook' }), 'phrases');
+  assert.equal(deliveryFor({ mode: 'notebook', delivery: 'invalid' }), 'phrases');
+  assert.deepEqual(notebookPlan('', 'en-US', 'sentences'), []);
+});
 
 test('sentences split into the grammatical units a teacher would say', () => {
   const cases = {

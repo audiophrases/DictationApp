@@ -715,6 +715,55 @@ check('teacher sees per-sentence reading results',
 // -------------------------------------------------------- notebook workflow
 const notebookText = 'When the sun rose over the quiet village, the children packed their bags for school, and their parents walked with them to the old stone bridge.';
 const notebookSegments = notebookPlan(notebookText, 'en-US').flatMap((part) => part.segments);
+
+// Delivery is independent of where students write. Exercise the complete
+// upload/start/answer/submit flow so the recordings and grading stay aligned.
+for (const mode of ['typing', 'notebook']) {
+  for (const delivery of ['phrases', 'sentences']) {
+    const segments = notebookPlan(notebookText, 'en-US', delivery).flatMap((part) => part.segments);
+    const label = `${mode} / ${delivery}`;
+    const made = await call('/api/teacher/assignments/create', {
+      method: 'POST', body: { password: PASSWORD, mode, delivery, segments,
+        text: notebookText, feedbackMode: 'sentence' },
+    });
+    check(`${label}: creation stores the selected delivery and exact plan`, made.status === 200
+      && made.payload.record.delivery === delivery
+      && JSON.stringify(made.payload.sentences) === JSON.stringify(segments));
+    const choiceCode = made.payload.code;
+    for (let i = 0; i < segments.length; i++) {
+      const upload = await call(`/api/teacher/assignments/${choiceCode}/audio/${i}`, {
+        method: 'PUT', raw: new Uint8Array([1, 2, 3]),
+        headers: { 'Content-Type': mode === 'notebook' ? 'audio/wav' : 'audio/mpeg', 'X-Teacher-Password': PASSWORD },
+      });
+      check(`${label}: clip ${i + 1} uploaded`, upload.status === 200);
+    }
+    await call(`/api/teacher/assignments/${choiceCode}/publish`, { method: 'POST', body: { password: PASSWORD } });
+    const started = await call(`/api/assignments/${choiceCode}/start`, { method: 'POST', body: { studentToken: STUDENT_TOKEN } });
+    const choiceId = started.payload.attemptId;
+    check(`${label}: student metadata reports delivery without revealing the passage`, started.status === 200
+      && started.payload.meta.delivery === delivery && started.payload.meta.sentenceCount === segments.length
+      && !JSON.stringify(started.payload).includes('village'));
+    for (let i = 0; i < segments.length; i++) {
+      const answer = await call(`/api/assignments/${choiceCode}/answer`, {
+        method: 'POST', body: { attemptId: choiceId, index: i, text: mode === 'typing' ? segments[i] : '' },
+      });
+      check(`${label}: answer ${i + 1} uses the correct feedback`, answer.status === 200
+        && (mode === 'typing' ? answer.payload.feedback?.accuracy === 1 : !answer.payload.feedback));
+    }
+    const handedIn = await call(`/api/assignments/${choiceCode}/submit`, {
+      method: 'POST', body: { attemptId: choiceId, answers: mode === 'typing' ? segments : [] },
+    });
+    check(`${label}: completion preserves grading and notebook correction rules`, handedIn.status === 200
+      && (mode === 'typing' ? handedIn.payload.results?.accuracy === 1
+        : !handedIn.payload.results && !handedIn.payload.corrections));
+    await call('/api/teacher/assignments/delete', { method: 'POST', body: { password: PASSWORD, code: choiceCode } });
+  }
+}
+const invalidTypingPlan = await call('/api/teacher/assignments/create', {
+  method: 'POST', body: { password: PASSWORD, mode: 'typing', delivery: 'phrases', text: notebookText, segments: ['Changed text.'] },
+});
+check('segmented typing rejects a plan that changes the passage', invalidTypingPlan.status === 400);
+
 const notebookCreate = await call('/api/teacher/assignments/create', {
   method: 'POST', body: { password: PASSWORD, mode: 'notebook', text: notebookText,
     notebookSegments, feedbackMode: 'sentence' },

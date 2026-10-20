@@ -27,6 +27,7 @@ function ResultsScreen({
   onNewPassage,
   grade: providedGrade,
   heading = 'Dictation Complete',
+  unit = 'sentence',
   playsLabel = 'Replays used',
   // Free practice counts replays only; an assignment counts every play, so the
   // two can't share one wording without one of them being wrong.
@@ -90,7 +91,7 @@ function ResultsScreen({
             <div key={i} className="sentence-card">
               <div className="sentence-card-header">
                 <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                  Sentence {i + 1}
+                  {unit === 'segment' ? 'Segment' : 'Sentence'} {i + 1}
                   {listenCounts[i] > 0 ? ` · ${formatPlays(listenCounts[i])}` : ''}
                 </span>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -100,7 +101,7 @@ function ResultsScreen({
                   <button
                     className="btn-icon"
                     onClick={() => onReplaySentence(s.original, i)}
-                    title="Hear this sentence again"
+                    title={`Hear this ${unit} again`}
                   >
                     <Volume2 size={16} />
                   </button>

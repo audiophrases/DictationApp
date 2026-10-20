@@ -88,7 +88,7 @@ function TeacherDashboard({ onCreate, onOpen, onExit }) {
                   <th>Title</th>
                   <th>Class</th>
                   <th>Due</th>
-                  <th>Sentences</th>
+                  <th>Sentences / segments</th>
                   <th>Status</th>
                   <th />
                 </tr>

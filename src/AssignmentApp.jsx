@@ -43,12 +43,14 @@ function AssignmentApp({ code }) {
   // the worker to mark the one just handed over.
   const [feedback, setFeedback] = useState(null);
   const [marking, setMarking] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
 
   const audio = useAssignmentAudio({
     code,
     attemptId,
     maxListens: meta?.maxListens ?? 0,
     initialListens,
+    playbackRate: meta?.allowSlowdown ? playbackRate : 1,
   });
   const { play, prefetch, stop } = audio;
 
@@ -364,7 +366,8 @@ function AssignmentApp({ code }) {
       }}
       onRepeat={() => play(currentIndex, { replay: true })}
       onFinish={() => finish([])}
-      isSpeaking={audio.isSpeaking} replaysLeft={audio.replaysLeftFor(currentIndex)} error={audio.error} />;
+      isSpeaking={audio.isSpeaking} replaysLeft={audio.replaysLeftFor(currentIndex)} error={audio.error}
+      rate={playbackRate} onRateChange={meta.allowSlowdown ? setPlaybackRate : undefined} />;
   }
 
   return (
@@ -381,6 +384,8 @@ function AssignmentApp({ code }) {
       replaysLeft={audio.replaysLeftFor(currentIndex)}
       isSpeaking={audio.isSpeaking}
       warnings={warnings}
+      rate={playbackRate}
+      onRateChange={meta.allowSlowdown ? setPlaybackRate : undefined}
       error={audio.error}
       feedback={feedback}
       onContinue={continueAfterFeedback}

@@ -471,6 +471,7 @@ async function createAssignment(env, body) {
         : {
             lang: String(body.lang || 'en-US').slice(0, 12),
             rate: Math.min(1.5, Math.max(0.5, Number(body.rate) || 1)),
+            allowSlowdown: body.allowSlowdown === true,
           },
     grading:
       app === 'ipa'
@@ -684,6 +685,7 @@ function studentMeta(record) {
     feedbackMode: record.feedbackMode,
     dueAt: record.dueAt,
     lang: record.settings.lang,
+    allowSlowdown: record.app !== 'ipa' && record.settings.allowSlowdown === true,
     // ipa only: the pinned strictness level; undefined for dictation, which
     // JSON.stringify simply drops.
     accuracyIndex: record.settings.accuracyIndex,

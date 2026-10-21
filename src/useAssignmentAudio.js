@@ -17,7 +17,7 @@ import { sentenceAudioUrl } from './lib/assignmentApi';
  *    used for the *first* play only; a replay always goes back to the server,
  *    which keeps the teacher's play count honest either way.
  */
-export function useAssignmentAudio({ code, attemptId, maxListens, initialListens }) {
+export function useAssignmentAudio({ code, attemptId, maxListens, initialListens, playbackRate = 1 }) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [listens, setListens] = useState(() => ({ ...(initialListens || {}) }));
   const [error, setError] = useState('');
@@ -86,6 +86,10 @@ export function useAssignmentAudio({ code, attemptId, maxListens, initialListens
       }
 
       const audio = new Audio(url);
+      // Slowing a stored recording does not request another clip or reveal its
+      // text. Apply it to direct URLs and prefetched blobs alike, keeping pitch.
+      audio.playbackRate = playbackRate;
+      audio.preservesPitch = true;
       audioRef.current = audio;
 
       const finish = () => {
@@ -106,7 +110,7 @@ export function useAssignmentAudio({ code, attemptId, maxListens, initialListens
         finish();
       });
     },
-    [code, attemptId]
+    [code, attemptId, playbackRate]
   );
 
   const stop = useCallback(() => {

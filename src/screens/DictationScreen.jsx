@@ -19,7 +19,7 @@ function DictationScreen({
   isSpeaking,
   warnings,
   rate,
-  onRateChange, // omitted in an assignment: the speed is baked into the audio
+  onRateChange, // assignments provide this only when the teacher allows slowing playback
   heading = 'Dictation in Progress',
   unit = 'sentence',
   error,

@@ -2,8 +2,8 @@ import { useEffect } from 'react';
 import { ArrowLeft, ArrowRight, BookOpen, CheckCircle, Loader2, Volume2 } from 'lucide-react';
 import { SPEEDS } from '../lib/options';
 
-// `onRateChange` is omitted in an assignment: the teacher's speed is baked
-// into its recordings, the same rule as typing mode.
+// Assignments provide `onRateChange` only when the teacher allows students
+// to slow the recording. Practice can record again at another voice speed.
 export default function NotebookScreen({ heading = 'Notebook dictation', unit = 'segment', count, index, onMove, onRepeat, onFinish, isSpeaking, loading = false, replaysLeft, error, rate, onRateChange }) {
   const canReplay = replaysLeft === null || replaysLeft > 0;
   useEffect(() => {

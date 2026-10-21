@@ -47,6 +47,7 @@ function AssignmentDetail({ code, onBack, onOpenAttempt }) {
             {record.className ? ` · ${record.className}` : ''}
             {` · ${record.sentenceCount} ${record.mode === 'notebook' ? 'notebook ' : ''}${dictationUnit(record)}${record.sentenceCount !== 1 ? 's' : ''}`}
             {record.dueAt ? ` · due ${formatWhen(record.dueAt)}` : ''}
+            {record.app !== 'ipa' ? ` · ${record.settings?.allowSlowdown ? 'Students can slow playback' : 'Fixed playback speed'}` : ''}
           </p>
         )}
       </div>

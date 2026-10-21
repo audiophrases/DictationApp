@@ -206,6 +206,7 @@ const created = await call('/api/teacher/assignments/create', {
 });
 const code = created.payload.code;
 check('assignment created', created.status === 200 && !!code, `code=${code}`);
+check('student slowdown is off by default', created.payload.record.settings.allowSlowdown === false);
 check('explicitly disabled grading options remain disabled',
   ['ignoreCase', 'ignorePunctuation', 'ignoreAccents']
     .every((key) => created.payload.record.grading[key] === false));
@@ -722,13 +723,15 @@ for (const mode of ['typing', 'notebook']) {
   for (const delivery of ['phrases', 'sentences']) {
     const segments = notebookPlan(notebookText, 'en-US', delivery).flatMap((part) => part.segments);
     const label = `${mode} / ${delivery}`;
+    const allowSlowdown = delivery === 'phrases';
     const made = await call('/api/teacher/assignments/create', {
       method: 'POST', body: { password: PASSWORD, mode, delivery, segments,
-        text: notebookText, feedbackMode: 'sentence' },
+        text: notebookText, feedbackMode: 'sentence', allowSlowdown },
     });
     check(`${label}: creation stores the selected delivery and exact plan`, made.status === 200
       && made.payload.record.delivery === delivery
       && JSON.stringify(made.payload.sentences) === JSON.stringify(segments));
+    check(`${label}: teacher controls student slowdown`, made.payload.record.settings.allowSlowdown === allowSlowdown);
     const choiceCode = made.payload.code;
     for (let i = 0; i < segments.length; i++) {
       const upload = await call(`/api/teacher/assignments/${choiceCode}/audio/${i}`, {
@@ -743,6 +746,7 @@ for (const mode of ['typing', 'notebook']) {
     check(`${label}: student metadata reports delivery without revealing the passage`, started.status === 200
       && started.payload.meta.delivery === delivery && started.payload.meta.sentenceCount === segments.length
       && !JSON.stringify(started.payload).includes('village'));
+    check(`${label}: student receives the teacher's slowdown permission`, started.payload.meta.allowSlowdown === allowSlowdown);
     for (let i = 0; i < segments.length; i++) {
       const answer = await call(`/api/assignments/${choiceCode}/answer`, {
         method: 'POST', body: { attemptId: choiceId, index: i, text: mode === 'typing' ? segments[i] : '' },

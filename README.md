@@ -13,6 +13,13 @@ notebook recordings announce punctuation at each sentence ending. Existing
 settings and assignments keep their defaults: full sentences for typing and
 short phrases for notebooks.
 
+Teachers can enable **Allow students to slow playback** when creating an
+assignment. Students then get a **Normal / Relaxed / Slow** dropdown in either
+typing or notebook mode. Normal uses the teacher's recorded pace; the slower
+options keep the voice's pitch and apply from the next play. Changing speed
+does not use a replay. The option is off by default, including for existing
+assignments.
+
 ## Where the app runs
 
 Three pieces, in three places, for one reason each:

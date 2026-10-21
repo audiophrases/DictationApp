@@ -25,6 +25,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
   const [due, setDue] = useState('');
   const [lang, setLang] = useState('en-US');
   const [rate, setRate] = useState(1);
+  const [allowSlowdown, setAllowSlowdown] = useState(false);
   const [maxListens, setMaxListens] = useState(0);
   const [attemptsLimit, setAttemptsLimit] = useState(1);
   const [feedbackMode, setFeedbackMode] = useState('end');
@@ -97,6 +98,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
         feedbackMode,
         lang,
         rate,
+        allowSlowdown,
         grading,
       });
       setCode(newCode);
@@ -270,6 +272,16 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
                 {REPLAY_LIMITS.map((r) => <option key={r.value} value={r.value}>{r.name.replace('sentence', unit)}</option>)}
               </select>
             </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <input type="checkbox" checked={allowSlowdown} onChange={(e) => setAllowSlowdown(e.target.checked)} />
+              Allow students to slow playback
+            </label>
+            <p className="field-hint">{allowSlowdown
+              ? 'Students can choose Normal, Relaxed, or Slow. Normal uses the voice speed selected above; Relaxed and Slow slow it further.'
+              : 'Students listen at the voice speed selected above, without a speed dropdown.'}</p>
           </div>
 
           <div className="settings-grid">

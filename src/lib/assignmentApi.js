@@ -33,6 +33,11 @@ export function getAttempt(code, studentKey, attemptId) {
   return teacherPost('/api/teacher/attempts/get', { code, studentKey, attemptId });
 }
 
+// Notebook only: undoes an accidental hand-in so the student can carry on.
+export function reopenAttempt(code, studentKey, attemptId) {
+  return teacherPost('/api/teacher/attempts/reopen', { code, studentKey, attemptId });
+}
+
 export function setAssignmentStatus(code, status) {
   return teacherPost('/api/teacher/assignments/status', { code, status });
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Loader2 } from 'lucide-react';
-import { getAttempt } from '../../lib/assignmentApi';
+import { ArrowLeft, Loader2, RotateCcw } from 'lucide-react';
+import { getAttempt, reopenAttempt } from '../../lib/assignmentApi';
 import DiffText from '../../components/DiffText';
 import DiffLegend from '../../components/DiffLegend';
 import { accuracyClass } from '../../lib/score';
@@ -9,6 +9,23 @@ import { dictationUnit } from '../../lib/delivery';
 function AttemptDetail({ code, attempt, onBack }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  const [reopening, setReopening] = useState(false);
+  const [confirmReopen, setConfirmReopen] = useState(false);
+
+  async function reopen() {
+    if (!confirmReopen) { setConfirmReopen(true); return; }
+    setReopening(true);
+    setError('');
+    try {
+      const { attempt: updated } = await reopenAttempt(code, attempt.studentKey, attempt.id);
+      setData((current) => ({ ...current, attempt: updated }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setReopening(false);
+      setConfirmReopen(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -28,7 +45,7 @@ function AttemptDetail({ code, attempt, onBack }) {
       <div className="app-header">
         <h1>{attempt.studentName}</h1>
         <p>
-          {data?.mode === 'notebook' ? (attempt.submitted ? 'Completed' : 'In progress') : (attempt.submitted ? 'Submitted' : 'Not submitted')}
+          {data?.mode === 'notebook' ? ((data?.attempt ?? attempt).submitted ? 'Completed' : 'In progress') : (attempt.submitted ? 'Submitted' : 'Not submitted')}
           {results ? ` · ${Math.round(results.accuracy * 100)}% · ${results.correct} of ${results.total} words` : ''}
         </p>
       </div>
@@ -48,6 +65,18 @@ function AttemptDetail({ code, attempt, onBack }) {
           <div>
             <h2 style={{ fontSize: '1.2rem' }}>Written in a notebook</h2>
             <p className="field-hint">{data.attempt.submitted ? 'The student has finished the dictation.' : 'The student has not finished the dictation yet.'} No automatic score is assigned.</p>
+            {data.attempt.submitted && (
+              <div style={{ marginTop: '1rem' }}>
+                <button className="btn-ghost" onClick={reopen} disabled={reopening}>
+                  {reopening ? <Loader2 size={16} className="spin" /> : <RotateCcw size={16} />}
+                  {confirmReopen ? ' Click again to reopen' : ' Reopen for this student'}
+                </button>
+                <p className="field-hint">
+                  For an accidental hand-in. The student opens the assignment link again and carries on
+                  where they choose; plays they have used still count.
+                </p>
+              </div>
+            )}
             <h3 style={{ marginTop: '1.5rem' }}>Correction passage</h3>
             <p style={{ whiteSpace: 'pre-wrap', marginTop: '0.75rem' }}>{data.sentences.join(' ')}</p>
           </div>

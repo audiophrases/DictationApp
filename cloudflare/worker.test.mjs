@@ -825,6 +825,20 @@ const nbMeta = await call(`/api/assignments/${nbCode}/meta`);
 check('public notebook metadata never includes the released text', !JSON.stringify(nbMeta.payload).includes('village'));
 const nbDetail = await call('/api/teacher/attempts/get', { method: 'POST', body: { password: PASSWORD, code: nbCode, studentKey: 'usr_testkid@override.local', attemptId: nbId } });
 check('teacher sees notebook completion without a false zero score', nbDetail.payload.results === null && nbDetail.payload.attempt.scorePercent === null && !!nbDetail.payload.attempt.submittedAt);
+// An accidental hand-in: the teacher reopens it and the student carries on in
+// the same attempt, without spending another one.
+const reopenBody = { code: nbCode, studentKey: 'usr_testkid@override.local', attemptId: nbId };
+check('student cannot reopen their own notebook hand-in', (await call('/api/teacher/attempts/reopen', { method: 'POST', body: reopenBody })).status === 401);
+const nbReopen = await call('/api/teacher/attempts/reopen', { method: 'POST', body: { ...reopenBody, password: PASSWORD } });
+check('teacher can reopen a handed-in notebook attempt', nbReopen.status === 200 && nbReopen.payload.attempt.submitted === false);
+const nbReopened = await call(`/api/assignments/${nbCode}/start`, { method: 'POST', body: { studentToken: STUDENT_TOKEN } });
+check('a reopened notebook resumes the same attempt, unfinished', nbReopened.status === 200 && nbReopened.payload.attemptId === nbId
+  && !nbReopened.payload.submitted && !nbReopened.payload.outcome);
+check('a reopened notebook can be handed in again', (await call(`/api/assignments/${nbCode}/submit`, { method: 'POST', body: { attemptId: nbId, answers: [] } })).status === 200);
+const typedReopen = await call('/api/teacher/attempts/reopen', {
+  method: 'POST', body: { password: PASSWORD, code, studentKey: 'usr_testkid@override.local', attemptId: nbId },
+});
+check('typed attempts cannot be reopened', typedReopen.status === 400);
 await call('/api/teacher/assignments/status', { method: 'POST', body: { password: PASSWORD, code: nbCode, status: 'archived' } });
 const nbResume = await call(`/api/assignments/${nbCode}/start`, { method: 'POST', body: { studentToken: STUDENT_TOKEN } });
 check('signed-in student can reopen corrections after assignment is archived', nbResume.status === 200 && nbResume.payload.submitted && nbResume.payload.outcome?.corrections === notebookText);

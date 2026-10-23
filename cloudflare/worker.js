@@ -602,6 +602,27 @@ async function attemptDetail(env, code, studentKey, attemptId) {
   return json({ attempt, results, sentences: record.sentences, mode: record.mode, delivery: deliveryFor(record) });
 }
 
+// Undoes an accidental hand-in on a notebook assignment, so the student can go
+// back to the dictation. Notebook only: there is no score to undo, and the
+// writing is on paper. A typed attempt has already shown its marks, so
+// reopening one would let the student redo answers they've seen corrected.
+// Plays already used still count toward the replay limit.
+async function reopenAttempt(env, code, studentKey, attemptId) {
+  const record = await getJson(env.ASSIGN_BUCKET, recordKey(code));
+  if (!record) return fail('Assignment not found.', 404);
+  if (record.mode !== 'notebook') return fail('Only notebook attempts can be reopened.');
+  return retryingOnConflict(async () => {
+    const attempt = await getJsonWithEtag(env.ASSIGN_BUCKET, attemptKey(code, studentKey, attemptId));
+    if (!attempt) return fail('Attempt not found.', 404);
+    if (attempt.submitted) {
+      attempt.submitted = false;
+      attempt.submittedAt = null;
+      await saveAttempt(env, attempt);
+    }
+    return json({ ok: true, attempt });
+  });
+}
+
 async function deleteAssignment(env, code) {
   const objects = await listAll(env.ASSIGN_BUCKET, { prefix: `assign/${code}/` });
   const keys = objects.map((o) => o.key);
@@ -1120,6 +1141,14 @@ async function route(request, env) {
       const attemptId = sanitizeAttemptId(body.attemptId);
       if (!code || !studentKey || !attemptId) return fail('Missing attempt details.');
       return attemptDetail(env, code, studentKey, attemptId);
+    }
+
+    if (path === '/api/teacher/attempts/reopen' && method === 'POST') {
+      const code = sanitizeCode(body.code);
+      const studentKey = String(body.studentKey || '').replace(/[^a-z0-9._@-]/gi, '').slice(0, 96);
+      const attemptId = sanitizeAttemptId(body.attemptId);
+      if (!code || !studentKey || !attemptId) return fail('Missing attempt details.');
+      return reopenAttempt(env, code, studentKey, attemptId);
     }
 
     if (path === '/api/teacher/assignments/status') {

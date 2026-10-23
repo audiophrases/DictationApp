@@ -42,8 +42,15 @@ if errorlevel 1 (
 
 echo.
 echo [2/6] Installing packages and checking everything works...
-call npm install --no-audit --no-fund
-if errorlevel 1 goto failed
+rem npm ci installs exactly what package-lock.json lists and never rewrites it
+rem (npm install can, which would leave a change here you didn't make). It
+rem starts from scratch, so it only runs when the lockfile is newer than the
+rem last install.
+node -e "const fs=require('fs');const t=(f)=>fs.statSync(f).mtimeMs;process.exit(fs.existsSync('node_modules/.package-lock.json')&&t('node_modules/.package-lock.json')>=t('package-lock.json')?0:1)"
+if errorlevel 1 (
+  call npm ci --include=dev --no-audit --no-fund
+  if errorlevel 1 goto failed
+)
 call npm test
 if errorlevel 1 (
   echo.

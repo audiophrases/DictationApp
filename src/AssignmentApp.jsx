@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle, Loader2, RefreshCw } from 'lucide-react';
+import { CheckCircle, Dumbbell, Loader2, Play, RefreshCw } from 'lucide-react';
 import AssignmentGate from './screens/assignment/AssignmentGate';
 import DictationScreen from './screens/DictationScreen';
 import ResultsScreen from './screens/ResultsScreen';
@@ -16,6 +16,7 @@ import {
   startAttempt,
   submitAttempt,
   fetchAttemptResults,
+  markPractice,
 } from './lib/assignmentApi';
 
 /**
@@ -28,7 +29,7 @@ import {
  * has been answered, and then never again for that sentence.
  */
 function AssignmentApp({ code }) {
-  const [phase, setPhase] = useState('gate'); // gate | dictating | submitting | done
+  const [phase, setPhase] = useState('gate'); // gate | dictating | submitting | done | practice | practiced
   const [meta, setMeta] = useState(null);
   const [attemptId, setAttemptId] = useState('');
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -44,11 +45,17 @@ function AssignmentApp({ code }) {
   const [feedback, setFeedback] = useState(null);
   const [marking, setMarking] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
+  // From the worker at start: whether another attempt can be started, how many
+  // are left (null = unlimited), and whether unrecorded practice is allowed.
+  const [progress, setProgress] = useState({ canStartNew: false, attemptsLeft: null, practice: false });
+  // Practice after handing in: one mark per sentence, kept only on this page.
+  const [practiceGrades, setPracticeGrades] = useState([]);
 
   const audio = useAssignmentAudio({
     code,
     attemptId,
-    maxListens: meta?.maxListens ?? 0,
+    // Practice is unmetered, on the worker too: the attempt is handed in.
+    maxListens: phase === 'practice' ? 0 : meta?.maxListens ?? 0,
     initialListens,
     playbackRate: meta?.allowSlowdown ? playbackRate : 1,
   });
@@ -103,13 +110,13 @@ function AssignmentApp({ code }) {
     [code, attemptId, stop, meta?.mode]
   );
 
-  async function handleStart() {
+  async function handleStart({ fresh = false } = {}) {
     setStarting(true);
     setStartError('');
     try {
       const session = readStudentSession();
       if (!session) throw Object.assign(new Error('Please sign in with your school account again.'), { status: 401 });
-      const data = await startAttempt(code, session.studentToken);
+      const data = await startAttempt(code, session.studentToken, { fresh });
       const count = data.meta.sentenceCount;
       const restored = Array.from({ length: count }, (_, i) => data.answers[i] ?? '');
 
@@ -119,8 +126,11 @@ function AssignmentApp({ code }) {
       setWarnings(data.warnings || 0);
       answersRef.current = restored;
       rememberAttempt(code, data.attemptId, session.student.email);
+      setProgress({ canStartNew: !!data.canStartNew, attemptsLeft: data.attemptsLeft ?? null, practice: !!data.practice });
 
-      if (data.meta.mode === 'notebook' && data.submitted) {
+      // Coming back after handing in: their result, and from there a new
+      // attempt or practice if the teacher allows them.
+      if (data.submitted) {
         setOutcome(data.outcome);
         setPhase('done');
         return;
@@ -144,6 +154,8 @@ function AssignmentApp({ code }) {
       );
       setCurrentIndex(resumeAt);
       setStudentInput('');
+      setFeedback(null);
+      startedRef.current = false;
       setPhase('dictating');
     } catch (err) {
       if (err.status === 401) clearStudentSession();
@@ -161,6 +173,16 @@ function AssignmentApp({ code }) {
     startedRef.current = true;
     play(currentIndex);
   }, [phase, attemptId, currentIndex, play]);
+
+  // Practice's first sentence plays once the switch to practice has rendered,
+  // which is what makes playback unmetered: before it, a sentence whose
+  // replays were used up in the real attempt would refuse to play.
+  const practiceStartRef = useRef(false);
+  useEffect(() => {
+    if (phase !== 'practice' || !practiceStartRef.current) return;
+    practiceStartRef.current = false;
+    play(0, { replay: true });
+  }, [phase, play]);
 
   // One sentence ahead, and only when replays are unlimited — see the note in
   // useAssignmentAudio about why prefetching is metered.
@@ -266,6 +288,36 @@ function AssignmentApp({ code }) {
     advance(index);
   }
 
+  function startPractice() {
+    stop();
+    setPracticeGrades([]);
+    setFeedback(null);
+    setStudentInput('');
+    setCurrentIndex(0);
+    practiceStartRef.current = true;
+    setPhase('practice');
+  }
+
+  async function practiceAnswer() {
+    const index = currentIndex;
+    const text = studentInput;
+    setStudentInput('');
+    setMarking(true);
+    let grade = null;
+    try { grade = (await markPractice(code, attemptId, index, text)).feedback || null; } catch { /* shown as unmarked */ }
+    setMarking(false);
+    setPracticeGrades((grades) => { const next = [...grades]; next[index] = grade; return next; });
+    setFeedback({ index, grade });
+  }
+
+  function practiceContinue() {
+    const { index } = feedback;
+    setFeedback(null);
+    if (index + 1 >= meta.sentenceCount) { stop(); setPhase('practiced'); return; }
+    setCurrentIndex(index + 1);
+    play(index + 1, { replay: true });
+  }
+
   function finishEarly() {
     if (studentInput.trim()) setAnswerAt(currentIndex, studentInput);
     finish(answersRef.current);
@@ -313,8 +365,51 @@ function AssignmentApp({ code }) {
     );
   }
 
+  // What a student who has handed in can do next, if the teacher allows it.
+  const nextSteps = progress.canStartNew || progress.practice ? (
+    <div className="next-steps">
+      {progress.practice && (
+        <button className="btn-ghost" onClick={startPractice}>
+          <Dumbbell size={18} /> Practise again <span className="field-hint" style={{ margin: 0 }}>(not recorded)</span>
+        </button>
+      )}
+      {progress.canStartNew && (
+        <button className="btn-primary" onClick={() => handleStart({ fresh: true })} disabled={starting}>
+          {starting ? <Loader2 size={18} className="spin" /> : <Play size={18} />} Start a new attempt
+          {progress.attemptsLeft !== null ? ` (${progress.attemptsLeft} left)` : ''}
+        </button>
+      )}
+      {startError && <p className="fetch-error" role="alert">{startError}</p>}
+    </div>
+  ) : null;
+
+  if (phase === 'practiced') {
+    const graded = practiceGrades.filter(Boolean);
+    const totals = graded.reduce((t, g) => ({
+      correct: t.correct + g.correct, missed: t.missed + g.missed, extra: t.extra + g.extra, total: t.total + g.total,
+    }), { correct: 0, missed: 0, extra: 0, total: 0 });
+    return (
+      <ResultsScreen
+        unit={dictationUnit(meta)}
+        grade={{ sentences: graded, ...totals, accuracy: totals.total ? totals.correct / totals.total : 1 }}
+        sentences={graded.map((g) => g.original)}
+        typedSentences={graded.map((g) => g.typed)}
+        listenCounts={graded.map(() => 0)}
+        warnings={0}
+        heading="Practice complete"
+        playsLabel="Times played"
+        onReplaySentence={(_text, i) => play(practiceGrades.indexOf(graded[i]), { replay: true })}
+        note={<p className="field-hint" style={{ textAlign: 'center', marginTop: 0 }}>Practice isn't recorded: your handed-in score stays the same.</p>}
+        actions={<div className="next-steps">
+          <button className="btn-ghost" onClick={() => setPhase('done')}>Back to my result</button>
+          <button className="btn-primary" onClick={startPractice}><Dumbbell size={18} /> Practise again</button>
+        </div>}
+      />
+    );
+  }
+
   if (phase === 'done') {
-    if (meta?.mode === 'notebook') return <NotebookCompletion outcome={outcome}
+    if (meta?.mode === 'notebook') return <NotebookCompletion outcome={outcome} actions={nextSteps}
       onRefresh={async () => setOutcome(await fetchAttemptResults(code, attemptId))} />;
     if (outcome?.feedbackMode === 'none' || !outcome?.results) {
       return (
@@ -325,6 +420,7 @@ function AssignmentApp({ code }) {
             <p style={{ color: 'var(--text-muted)', marginTop: '0.75rem' }}>
               Your teacher has your answers. You can close this page.
             </p>
+            {nextSteps}
           </div>
         </div>
       );
@@ -351,21 +447,23 @@ function AssignmentApp({ code }) {
             Marked with the rules your teacher set, who can also see this.
           </p>
         }
-        actions={<span className="field-hint">You can close this page now.</span>}
+        actions={nextSteps || <span className="field-hint">You can close this page now.</span>}
       />
     );
   }
 
+  const practising = phase === 'practice';
+
   if (meta?.mode === 'notebook') {
-    return <NotebookScreen heading={meta.title} count={meta.sentenceCount} index={currentIndex} unit={dictationUnit(meta)}
+    return <NotebookScreen heading={practising ? `${meta.title} · practice` : meta.title} count={meta.sentenceCount} index={currentIndex} unit={dictationUnit(meta)}
       onMove={(index) => {
         stop();
-        saveAnswer(code, attemptId, currentIndex, '').catch(() => {});
+        if (!practising) saveAnswer(code, attemptId, currentIndex, '').catch(() => {});
         setCurrentIndex(index);
         if (audio.replaysLeftFor(index) === null || audio.replaysLeftFor(index) > 0) play(index, { replay: true });
       }}
       onRepeat={() => play(currentIndex, { replay: true })}
-      onFinish={() => finish([])}
+      onFinish={() => (practising ? (stop(), setPhase('done')) : finish([]))}
       isSpeaking={audio.isSpeaking} replaysLeft={audio.replaysLeftFor(currentIndex)} error={audio.error}
       rate={playbackRate} onRateChange={meta.allowSlowdown ? setPlaybackRate : undefined} />;
   }
@@ -373,14 +471,14 @@ function AssignmentApp({ code }) {
   return (
     <DictationScreen
       unit={dictationUnit(meta)}
-      heading={meta.title}
+      heading={practising ? `${meta.title} · practice (not recorded)` : meta.title}
       sentenceCount={meta.sentenceCount}
       currentIndex={currentIndex}
       studentInput={studentInput}
       setStudentInput={setStudentInput}
-      onSubmit={nextSentence}
+      onSubmit={practising ? practiceAnswer : nextSentence}
       onRepeat={() => play(currentIndex, { replay: true })}
-      onFinishEarly={finishEarly}
+      onFinishEarly={practising ? () => { stop(); setPhase(practiceGrades.some(Boolean) ? 'practiced' : 'done'); } : finishEarly}
       replaysLeft={audio.replaysLeftFor(currentIndex)}
       isSpeaking={audio.isSpeaking}
       warnings={warnings}
@@ -388,7 +486,7 @@ function AssignmentApp({ code }) {
       onRateChange={meta.allowSlowdown ? setPlaybackRate : undefined}
       error={audio.error}
       feedback={feedback}
-      onContinue={continueAfterFeedback}
+      onContinue={practising ? practiceContinue : continueAfterFeedback}
       marking={marking}
     />
   );

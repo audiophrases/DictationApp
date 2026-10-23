@@ -10,10 +10,10 @@
 // student thereafter plays audio straight out of R2 with no TTS call at all.
 import { ttsBase } from './api';
 import { uploadSentenceAudio } from './assignmentApi';
-import { prepareNotebookSentence } from './notebookAudio';
+import { prepareNotebookSegment, prepareNotebookSentence } from './notebookAudio';
 import { notebookPlan } from './notebook';
 import { deliveryFor } from './delivery';
-import { sameSegmentPlan } from './notebookShared';
+import { sameSegmentPlan, segmentGroups } from './notebookShared';
 
 // Two at a time: enough to hide the round-trip latency, gentle enough that a
 // just-woken free-tier server isn't hit with twenty synthesis jobs at once.
@@ -92,4 +92,46 @@ export async function recordSentences(code, sentences, { lang, rate, only, onSet
 
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, drain));
   return failed.sort((a, b) => a - b);
+}
+
+/**
+ * Records an existing assignment's stored segments again — all of them, or
+ * just `only` — exactly as they are, without splitting the text again (see
+ * segmentGroups). Same contract as recordSentences: returns the indexes that
+ * did not make it.
+ */
+export async function rerecordSegments(code, segments, { lang, rate, mode, only, onSettled }) {
+  const wanted = (only || segments.map((_, i) => i)).slice().sort((a, b) => a - b);
+  const failed = [];
+  if (mode !== 'notebook') {
+    const queue = wanted.slice();
+    async function drain() {
+      while (queue.length) {
+        const index = queue.shift();
+        try {
+          await uploadSentenceAudio(code, index, await synthesize(segments[index], lang, rate));
+          onSettled?.(index, null);
+        } catch (error) { failed.push(index); onSettled?.(index, error); }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, drain));
+    return failed.sort((a, b) => a - b);
+  }
+  const groups = segmentGroups(segments);
+  const context = new AudioContext({ sampleRate: 24000 });
+  const cueCache = new Map();
+  try {
+    for (const index of wanted) {
+      const group = groups.find((g) => index >= g.start && index < g.start + g.count);
+      try {
+        const clip = await prepareNotebookSegment(segments[index], {
+          endsSentence: index === group.start + group.count - 1,
+          sentence: group.sentence, lang, rate, context, cueCache,
+        });
+        await uploadSentenceAudio(code, index, clip);
+        onSettled?.(index, null);
+      } catch (error) { failed.push(index); onSettled?.(index, error); }
+    }
+  } finally { await context.close(); }
+  return failed;
 }

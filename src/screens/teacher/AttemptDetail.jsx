@@ -1,31 +1,70 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Loader2, RotateCcw } from 'lucide-react';
-import { getAttempt, reopenAttempt } from '../../lib/assignmentApi';
+import { ArrowLeft, Loader2, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { deleteAttempt, getAttempt, grantExtraAttempt, reopenAttempt } from '../../lib/assignmentApi';
 import DiffText from '../../components/DiffText';
 import DiffLegend from '../../components/DiffLegend';
 import { accuracyClass } from '../../lib/score';
 import { dictationUnit } from '../../lib/delivery';
 
+// What the teacher can do about one student's attempt. Each action asks for a
+// second click, since none of them can be undone from here.
+function StudentActions({ code, attempt, data, onChanged, onDeleted }) {
+  const [confirming, setConfirming] = useState('');
+  const [busy, setBusy] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const submitted = data.attempt.submitted;
+  const name = attempt.studentName || 'The student';
+
+  async function run(action, task) {
+    if (confirming !== action) { setConfirming(action); setMessage(''); return; }
+    setConfirming('');
+    setBusy(action);
+    setError('');
+    try { await task(); } catch (err) { setError(err.message); } finally { setBusy(''); }
+  }
+  const label = (action, idle, confirm) => (confirming === action ? confirm : idle);
+  const icon = (action, Icon) => (busy === action ? <Loader2 size={16} className="spin" /> : <Icon size={16} />);
+
+  return (
+    <div className="sentence-card" style={{ marginBottom: '1.5rem' }}>
+      <h2 style={{ fontSize: '1.05rem' }}>Student options</h2>
+      <div className="attempt-actions">
+        {submitted && (
+          <button className="btn-ghost btn-small" disabled={!!busy} onClick={() => run('reopen', async () => {
+            await reopenAttempt(code, attempt.studentKey, attempt.id);
+            onChanged(await getAttempt(code, attempt.studentKey, attempt.id));
+            setMessage(`Reopened. ${name} opens the assignment link again and carries on in this attempt.`);
+          })}>
+            {icon('reopen', RotateCcw)} {label('reopen', 'Reopen this attempt', 'Click again to reopen')}
+          </button>
+        )}
+        <button className="btn-ghost btn-small" disabled={!!busy} onClick={() => run('extra', async () => {
+          const { extraAttempts } = await grantExtraAttempt(code, attempt.studentKey);
+          setMessage(`${name} can start ${extraAttempts === 1 ? 'one more attempt' : `${extraAttempts} more attempts`} than the class.`);
+        })}>
+          {icon('extra', Plus)} {label('extra', 'Give one more attempt', 'Click again to give one more')}
+        </button>
+        <button className={confirming === 'delete' ? 'btn-danger btn-small' : 'btn-ghost btn-small'} disabled={!!busy} onClick={() => run('delete', async () => {
+          await deleteAttempt(code, attempt.studentKey, attempt.id);
+          onDeleted();
+        })}>
+          {icon('delete', Trash2)} {label('delete', 'Delete this attempt', 'Click again to delete it for good')}
+        </button>
+      </div>
+      <p className="field-hint">
+        {message || (submitted
+          ? `Reopen undoes the hand-in${data.mode === 'notebook' ? '' : ' and its score'}, for an accidental hand-in or a dictation finished early; plays already used still count. Another attempt starts fresh. Deleting removes this attempt and its score, and it no longer counts toward the limit.`
+          : 'Another attempt starts fresh once this one is handed in. Deleting removes this attempt, and it no longer counts toward the limit.')}
+      </p>
+      {error && <div className="fetch-error">{error}</div>}
+    </div>
+  );
+}
+
 function AttemptDetail({ code, attempt, onBack }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
-  const [reopening, setReopening] = useState(false);
-  const [confirmReopen, setConfirmReopen] = useState(false);
-
-  async function reopen() {
-    if (!confirmReopen) { setConfirmReopen(true); return; }
-    setReopening(true);
-    setError('');
-    try {
-      const { attempt: updated } = await reopenAttempt(code, attempt.studentKey, attempt.id);
-      setData((current) => ({ ...current, attempt: updated }));
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setReopening(false);
-      setConfirmReopen(false);
-    }
-  }
 
   useEffect(() => {
     let cancelled = false;
@@ -45,7 +84,7 @@ function AttemptDetail({ code, attempt, onBack }) {
       <div className="app-header">
         <h1>{attempt.studentName}</h1>
         <p>
-          {data?.mode === 'notebook' ? ((data?.attempt ?? attempt).submitted ? 'Completed' : 'In progress') : (attempt.submitted ? 'Submitted' : 'Not submitted')}
+          {data?.mode === 'notebook' ? ((data?.attempt ?? attempt).submitted ? 'Completed' : 'In progress') : ((data?.attempt ?? attempt).submitted ? 'Submitted' : 'Not submitted')}
           {results ? ` · ${Math.round(results.accuracy * 100)}% · ${results.correct} of ${results.total} words` : ''}
         </p>
       </div>
@@ -59,24 +98,16 @@ function AttemptDetail({ code, attempt, onBack }) {
 
         {error && <div className="fetch-error">{error}</div>}
 
+        {data?.attempt && (
+          <StudentActions code={code} attempt={attempt} data={data} onChanged={setData} onDeleted={onBack} />
+        )}
+
         {!data && !error ? (
           <div className="empty-note"><Loader2 size={22} className="spin" /></div>
         ) : data?.mode === 'notebook' ? (
           <div>
             <h2 style={{ fontSize: '1.2rem' }}>Written in a notebook</h2>
             <p className="field-hint">{data.attempt.submitted ? 'The student has finished the dictation.' : 'The student has not finished the dictation yet.'} No automatic score is assigned.</p>
-            {data.attempt.submitted && (
-              <div style={{ marginTop: '1rem' }}>
-                <button className="btn-ghost" onClick={reopen} disabled={reopening}>
-                  {reopening ? <Loader2 size={16} className="spin" /> : <RotateCcw size={16} />}
-                  {confirmReopen ? ' Click again to reopen' : ' Reopen for this student'}
-                </button>
-                <p className="field-hint">
-                  For an accidental hand-in. The student opens the assignment link again and carries on
-                  where they choose; plays they have used still count.
-                </p>
-              </div>
-            )}
             <h3 style={{ marginTop: '1.5rem' }}>Correction passage</h3>
             <p style={{ whiteSpace: 'pre-wrap', marginTop: '0.75rem' }}>{data.sentences.join(' ')}</p>
           </div>

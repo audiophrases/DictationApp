@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Copy, Loader2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Copy, Loader2, Pencil, RefreshCw } from 'lucide-react';
 import { getAssignment, releaseCorrections } from '../../lib/assignmentApi';
 import { accuracyClass } from '../../lib/score';
 import { studentLink } from '../../lib/appLinks';
@@ -12,7 +12,7 @@ function formatWhen(ms) {
   });
 }
 
-function AssignmentDetail({ code, onBack, onOpenAttempt }) {
+function AssignmentDetail({ code, onBack, onEdit, onOpenAttempt }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [releasing, setReleasing] = useState(false);
@@ -48,6 +48,8 @@ function AssignmentDetail({ code, onBack, onOpenAttempt }) {
             {` · ${record.sentenceCount} ${record.mode === 'notebook' ? 'notebook ' : ''}${dictationUnit(record)}${record.sentenceCount !== 1 ? 's' : ''}`}
             {record.dueAt ? ` · due ${formatWhen(record.dueAt)}` : ''}
             {record.app !== 'ipa' ? ` · ${record.settings?.allowSlowdown ? 'Students can slow playback' : 'Fixed playback speed'}` : ''}
+            {` · ${record.attemptsLimit === 0 ? 'unlimited attempts' : `${record.attemptsLimit} attempt${record.attemptsLimit !== 1 ? 's' : ''}`}`}
+            {record.practiceAfter ? ' · practice after hand-in' : ''}
           </p>
         )}
       </div>
@@ -67,6 +69,11 @@ function AssignmentDetail({ code, onBack, onOpenAttempt }) {
             <button className="btn-ghost btn-small" onClick={load}>
               <RefreshCw size={15} /> Refresh
             </button>
+            {record && record.app !== 'ipa' && (
+              <button className="btn-ghost btn-small" onClick={onEdit}>
+                <Pencil size={15} /> Edit
+              </button>
+            )}
           </div>
         </div>
 

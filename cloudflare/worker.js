@@ -395,15 +395,14 @@ async function nextCode(env) {
 
 // ------------------------------------------------------------ teacher routes
 
-async function createAssignment(env, body) {
-  const app = body.app === 'ipa' ? 'ipa' : 'dictation';
-  const mode = app !== 'ipa' && body.mode === 'notebook' ? 'notebook' : 'typing';
-  const delivery = app === 'ipa' ? 'sentences' : deliveryFor({ mode, delivery: body.delivery });
+// The sentences (or phrases) an assignment is made of, validated the same way
+// whether it is being created or its text edited. Returns { sentences } or
+// { error } with a message for the teacher.
+function assignmentSentences(body, { app, mode, delivery }) {
   const usesPhrases = delivery === 'phrases';
   if ((mode === 'notebook' || usesPhrases) && String(body.text || '').length > MAX_PASSAGE_CHARS) {
-    return fail(`Dictation passages are limited to ${MAX_PASSAGE_CHARS} characters.`);
+    return { error: `Dictation passages are limited to ${MAX_PASSAGE_CHARS} characters.` };
   }
-
   let sentences;
   if (app === 'ipa') {
     // Reading sentences arrive as a list, one per line of the lesson — the
@@ -415,7 +414,7 @@ async function createAssignment(env, body) {
   } else {
     const passage = sanitizeText(body.text, MAX_PASSAGE_CHARS);
     if (mode === 'notebook' && splitIntoSentences(passage).some((sentence) => sentence.length > 3000)) {
-      return fail('A sentence is too long for the voice server (maximum 3000 characters). Add sentence breaks and try again.');
+      return { error: 'A sentence is too long for the voice server (maximum 3000 characters). Add sentence breaks and try again.' };
     }
     // The teacher browser computes phrases for either mode. Validate that
     // they preserve the passage without loading a language model here.
@@ -423,13 +422,24 @@ async function createAssignment(env, body) {
     sentences = usesPhrases
       ? validatedNotebookSegments(passage, body.segments ?? body.notebookSegments)
       : splitIntoSentences(passage);
-    if (!sentences) return fail('The phrase plan does not match the passage. Reload the app and try again.');
+    if (!sentences) return { error: 'The phrase plan does not match the passage. Reload the app and try again.' };
   }
-  if (sentences.length === 0) return fail('The passage is empty.');
+  if (sentences.length === 0) return { error: 'The passage is empty.' };
   const limit = usesPhrases ? MAX_SEGMENTS : MAX_SENTENCES;
   if (sentences.length > limit) {
-    return fail(`That passage is ${sentences.length} ${usesPhrases ? 'segments' : 'sentences'}; the limit is ${limit}.`);
+    return { error: `That passage is ${sentences.length} ${usesPhrases ? 'segments' : 'sentences'}; the limit is ${limit}.` };
   }
+
+  return { sentences };
+}
+
+async function createAssignment(env, body) {
+  const app = body.app === 'ipa' ? 'ipa' : 'dictation';
+  const mode = app !== 'ipa' && body.mode === 'notebook' ? 'notebook' : 'typing';
+  const delivery = app === 'ipa' ? 'sentences' : deliveryFor({ mode, delivery: body.delivery });
+  const content = assignmentSentences(body, { app, mode, delivery });
+  if (content.error) return fail(content.error);
+  const { sentences } = content;
 
   const now = Date.now();
   const dueAt = Number(body.dueAt || 0) > 0 ? Math.round(Number(body.dueAt)) : null;
@@ -448,7 +458,11 @@ async function createAssignment(env, body) {
     createdAt: now,
     updatedAt: now,
     dueAt,
-    attemptsLimit: mode === 'notebook' ? 1 : clamp(body.attemptsLimit ?? 1, 0, 10),
+    attemptsLimit: clamp(body.attemptsLimit ?? 1, 0, 10),
+    // Per student: attempts the teacher granted on top of attemptsLimit.
+    extraAttempts: {},
+    // Unrecorded practice once a student has handed in (see practiceAllowed).
+    practiceAfter: app !== 'ipa' && body.practiceAfter === true,
     maxListens: app === 'ipa' ? 0 : clamp(body.maxListens ?? 0, 0, 9),
     // 'end' shows the marked answers after handing in; 'sentence' additionally
     // marks each sentence the moment it is answered (see saveAnswer); 'none'
@@ -584,7 +598,11 @@ async function assignmentDetail(env, code) {
     })
     .sort((a, b) => a.studentName.localeCompare(b.studentName) || a.updatedAt - b.updatedAt);
 
-  return json({ record: publicRecord(record), sentences: record.sentences, attempts });
+  // `text` is the passage as typed, for the teacher's edit form.
+  return json({
+    record: publicRecord(record), sentences: record.sentences, attempts,
+    text: record.correctionText || record.sentences.join(' '),
+  });
 }
 
 async function attemptDetail(env, code, studentKey, attemptId) {
@@ -602,24 +620,140 @@ async function attemptDetail(env, code, studentKey, attemptId) {
   return json({ attempt, results, sentences: record.sentences, mode: record.mode, delivery: deliveryFor(record) });
 }
 
-// Undoes an accidental hand-in on a notebook assignment, so the student can go
-// back to the dictation. Notebook only: there is no score to undo, and the
-// writing is on paper. A typed attempt has already shown its marks, so
-// reopening one would let the student redo answers they've seen corrected.
-// Plays already used still count toward the replay limit.
+// Undoes a hand-in — an accidental one, or a typed attempt finished early — so
+// the student goes back to the same attempt. Its answers are kept; a typed
+// attempt is marked again when it is handed in again. Plays already used
+// still count toward the replay limit.
 async function reopenAttempt(env, code, studentKey, attemptId) {
   const record = await getJson(env.ASSIGN_BUCKET, recordKey(code));
   if (!record) return fail('Assignment not found.', 404);
-  if (record.mode !== 'notebook') return fail('Only notebook attempts can be reopened.');
+  if (record.app === 'ipa') return fail('Reading attempts are managed in Speech to IPA.');
   return retryingOnConflict(async () => {
     const attempt = await getJsonWithEtag(env.ASSIGN_BUCKET, attemptKey(code, studentKey, attemptId));
     if (!attempt) return fail('Attempt not found.', 404);
     if (attempt.submitted) {
       attempt.submitted = false;
       attempt.submittedAt = null;
+      attempt.results = null;
+      attempt.scorePercent = null;
       await saveAttempt(env, attempt);
     }
     return json({ ok: true, attempt });
+  });
+}
+
+// One more attempt for one student, on top of the assignment's limit.
+async function grantExtraAttempt(env, code, studentKey) {
+  const record = await getJson(env.ASSIGN_BUCKET, recordKey(code));
+  if (!record) return fail('Assignment not found.', 404);
+  const extra = Number(record.extraAttempts?.[studentKey] || 0) + 1;
+  record.extraAttempts = { ...record.extraAttempts, [studentKey]: extra };
+  await saveAssignment(env, record);
+  return json({ ok: true, extraAttempts: extra });
+}
+
+// Removes one attempt for good, so it no longer counts toward the limit.
+async function deleteAttempt(env, code, studentKey, attemptId) {
+  const key = attemptKey(code, studentKey, attemptId);
+  if (!(await env.ASSIGN_BUCKET.head(key))) return fail('Attempt not found.', 404);
+  await env.ASSIGN_BUCKET.delete(key);
+  return json({ ok: true });
+}
+
+// Settings a teacher can change on an existing dictation without touching its
+// text or recordings. A field that isn't sent is left as it is.
+async function updateSettings(env, body) {
+  const code = sanitizeCode(body.code);
+  const record = code ? await getJson(env.ASSIGN_BUCKET, recordKey(code)) : null;
+  if (!record) return fail('Assignment not found.', 404);
+  if (record.app === 'ipa') return fail('Reading assignments are edited in Speech to IPA.');
+  const has = (key) => Object.prototype.hasOwnProperty.call(body, key);
+
+  if (has('grading') && record.mode !== 'notebook') {
+    const grading = {
+      ignoreCase: gradingFlag(body.grading, 'ignoreCase'),
+      ignorePunctuation: gradingFlag(body.grading, 'ignorePunctuation'),
+      ignoreAccents: gradingFlag(body.grading, 'ignoreAccents'),
+    };
+    if (JSON.stringify(grading) !== JSON.stringify(record.grading)) {
+      // Handed-in scores were marked under the old rules, and students may
+      // have seen them; re-marking would change them behind everyone's back.
+      const attempts = await listAll(env.ASSIGN_BUCKET, {
+        prefix: `assign/${code}/attempts/`, include: ['customMetadata'], limit: 100,
+      });
+      if (attempts.some((o) => o.customMetadata?.sub === '1')) {
+        return fail("Marking can't change once students have handed in, because their scores are already set. Edit the text to start everyone again, or create a new assignment.");
+      }
+      record.grading = grading;
+    }
+  }
+  if (has('title')) record.title = sanitizeName(body.title) || record.title;
+  if (has('className')) record.className = sanitizeName(body.className);
+  if (has('dueAt')) record.dueAt = Number(body.dueAt || 0) > 0 ? Math.round(Number(body.dueAt)) : null;
+  if (has('attemptsLimit')) record.attemptsLimit = clamp(body.attemptsLimit, 0, 10);
+  if (has('maxListens')) record.maxListens = clamp(body.maxListens, 0, 9);
+  if (has('feedbackMode') && record.mode !== 'notebook') {
+    record.feedbackMode = body.feedbackMode === 'none' || body.feedbackMode === 'sentence' ? body.feedbackMode : 'end';
+  }
+  if (has('allowSlowdown')) record.settings.allowSlowdown = body.allowSlowdown === true;
+  if (has('practiceAfter')) record.practiceAfter = body.practiceAfter === true;
+  // Recorded speed: sent after the teacher re-records the audio at a new one.
+  if (has('rate')) record.settings.rate = Math.min(1.5, Math.max(0.5, Number(body.rate) || 1));
+
+  await saveAssignment(env, record);
+  return json({ ok: true, record: publicRecord(record) });
+}
+
+// New text for an existing dictation: same code and link, so nothing needs
+// re-sharing. Every attempt belongs to the old text and the old recordings no
+// longer match it, so both are deleted, and the assignment goes back to draft
+// until the teacher's browser has recorded the new text and published it.
+async function updateContent(env, body) {
+  const code = sanitizeCode(body.code);
+  const record = code ? await getJson(env.ASSIGN_BUCKET, recordKey(code)) : null;
+  if (!record) return fail('Assignment not found.', 404);
+  if (record.app === 'ipa') return fail('Reading assignments are edited in Speech to IPA.');
+  const content = assignmentSentences(body, { app: record.app, mode: record.mode, delivery: deliveryFor(record) });
+  if (content.error) return fail(content.error);
+
+  const objects = await listAll(env.ASSIGN_BUCKET, { prefix: `assign/${code}/` });
+  const keys = objects.map((o) => o.key);
+  for (let i = 0; i < keys.length; i += 1000) await env.ASSIGN_BUCKET.delete(keys.slice(i, i + 1000));
+
+  record.sentences = content.sentences;
+  record.sentenceCount = content.sentences.length;
+  if (record.mode === 'notebook') {
+    record.correctionText = sanitizeText(body.text, MAX_PASSAGE_CHARS).trim();
+    record.correctionsReleased = false;
+  }
+  if (body.lang) record.settings.lang = String(body.lang).slice(0, 12);
+  if (body.rate !== undefined) record.settings.rate = Math.min(1.5, Math.max(0.5, Number(body.rate) || 1));
+  record.extraAttempts = {};
+  record.status = 'draft';
+  await saveAssignment(env, record);
+  return json({
+    code,
+    sentences: record.sentences,
+    record: publicRecord(record),
+    cleared: keys.filter((key) => key.includes('/attempts/')).length,
+  });
+}
+
+// A recording as the teacher hears it, to check one before re-recording it.
+async function teacherAudio(env, body) {
+  const code = sanitizeCode(body.code);
+  const record = code ? await getJson(env.ASSIGN_BUCKET, recordKey(code)) : null;
+  if (!record) return fail('Assignment not found.', 404);
+  const index = parseIndex(body.index, record.sentenceCount);
+  if (index < 0) return fail('No such sentence.', 404);
+  const object = await env.ASSIGN_BUCKET.get(audioKey(code, index));
+  if (!object) return fail('That sentence has no audio yet.', 404);
+  return new Response(object.body, {
+    headers: {
+      'Content-Type': object.httpMetadata?.contentType || 'audio/mpeg',
+      'Cache-Control': 'no-store',
+      ...CORS_HEADERS,
+    },
   });
 }
 
@@ -726,12 +860,13 @@ function studentMeta(record) {
 // ipa flavor this includes the sentences themselves — reading aloud cannot
 // hide its text — and the per-sentence scores already banked, so a resumed
 // attempt shows the same progress the student last saw.
-function startResponse(record, attempt, resumed) {
+function startResponse(record, attempt, resumed, progress = {}) {
   return json({
     attemptId: attempt.id,
     resumed,
     submitted: !!attempt.submitted,
-    ...(record.mode === 'notebook' && attempt.submitted ? { outcome: notebookOutcome(record) } : {}),
+    ...(attempt.submitted ? { outcome: handInOutcome(record, attempt) } : {}),
+    ...progress,
     nextIndex: nextIndex(attempt, record.sentenceCount),
     answers: answersArray(attempt, record.sentenceCount),
     // Which of those are real: `answers` is padded with '' for every sentence
@@ -783,33 +918,47 @@ async function startAttempt(env, code, body, request) {
     limit: 100,
   });
 
-  // Notebook students return here to see corrections, including after the due
-  // date or archive. Identity is verified above; a release never exposes text
-  // through the public metadata or an unfinished attempt.
-  if (record.mode === 'notebook') {
-    const handedIn = existing.filter((o) => o.customMetadata?.sub === '1')
-      .sort((a, b) => Number(b.customMetadata.upd) - Number(a.customMetadata.upd))[0];
-    if (handedIn) return startResponse(record, await getJson(env.ASSIGN_BUCKET, handedIn.key), true);
-  }
-  if (record.status !== 'active') return fail('This assignment is closed.', 403);
-  if (record.dueAt && Date.now() > record.dueAt) return fail('This assignment is past its due date.', 403);
+  const now = Date.now();
+  const openForWork = record.status === 'active' && !(record.dueAt && now > record.dueAt);
+  const allowed = record.attemptsLimit > 0
+    ? record.attemptsLimit + Number(record.extraAttempts?.[studentKey] || 0)
+    : Infinity;
+  const canStartNew = openForWork && existing.length < allowed;
+  const progress = {
+    canStartNew,
+    attemptsLeft: allowed === Infinity ? null : Math.max(0, allowed - existing.length),
+    practice: practiceAllowed(record),
+  };
 
   // An unfinished attempt always wins over starting a new one: a student whose
   // Chromebook died mid-dictation should carry on, not spend an attempt.
   const open = existing.find((o) => (o.customMetadata || {}).sub !== '1');
-  if (open) {
+  if (open && openForWork) {
     const attempt = await getJson(env.ASSIGN_BUCKET, open.key);
-    if (attempt) return startResponse(record, attempt, true);
+    if (attempt) return startResponse(record, attempt, true, progress);
   }
 
-  if (record.attemptsLimit > 0 && existing.length >= record.attemptsLimit) {
+  // A dictation student who has handed in comes back to their result (and the
+  // corrections, for notebooks), including after the due date or archive —
+  // and from there can choose a new attempt or practice. `fresh` is that
+  // choice. Identity is verified above; a release never exposes text through
+  // the public metadata or an unfinished attempt.
+  if (record.app !== 'ipa' && body.fresh !== true) {
+    const handedIn = existing.filter((o) => o.customMetadata?.sub === '1')
+      .sort((a, b) => Number(b.customMetadata.upd) - Number(a.customMetadata.upd))[0];
+    const attempt = handedIn && await getJson(env.ASSIGN_BUCKET, handedIn.key);
+    if (attempt) return startResponse(record, attempt, true, progress);
+  }
+
+  if (record.status !== 'active') return fail('This assignment is closed.', 403);
+  if (record.dueAt && now > record.dueAt) return fail('This assignment is past its due date.', 403);
+  if (!canStartNew) {
     return fail(
-      `You have used all ${record.attemptsLimit} attempt${record.attemptsLimit > 1 ? 's' : ''} for this assignment.`,
+      `You have used all ${allowed} attempt${allowed > 1 ? 's' : ''} for this assignment.`,
       403
     );
   }
 
-  const now = Date.now();
   const attempt = {
     id: randomId('at_'),
     code,
@@ -830,7 +979,11 @@ async function startAttempt(env, code, body, request) {
   };
   await saveAttempt(env, attempt);
 
-  return startResponse(record, attempt, false);
+  return startResponse(record, attempt, false, {
+    ...progress,
+    canStartNew: existing.length + 1 < allowed,
+    attemptsLeft: progress.attemptsLeft === null ? null : progress.attemptsLeft - 1,
+  });
 }
 
 /**
@@ -1037,10 +1190,15 @@ async function submitAttempt(env, code, body) {
     await saveAttempt(env, attempt);
   }
 
-  if (record.feedbackMode === 'none') {
-    return json({ ok: true, feedbackMode: 'none' });
-  }
-  return json({
+  return json(handInOutcome(record, attempt));
+}
+
+// What a student sees about a handed-in attempt: on handing it in, and again
+// whenever they come back to the assignment.
+function handInOutcome(record, attempt) {
+  if (record.mode === 'notebook') return notebookOutcome(record);
+  if (record.feedbackMode === 'none') return { ok: true, feedbackMode: 'none' };
+  return {
     ok: true,
     feedbackMode: record.feedbackMode,
     results: attempt.results,
@@ -1048,7 +1206,28 @@ async function submitAttempt(env, code, body) {
     scores: record.app === 'ipa' ? attempt.scores || {} : undefined,
     listens: attempt.listens || {},
     warnings: attempt.warnings || 0,
-  });
+  };
+}
+
+// Unrecorded practice after handing in. Typed practice is marked, which shows
+// the passage, so it is off when the teacher chose to show students nothing.
+function practiceAllowed(record) {
+  return record.app !== 'ipa' && record.practiceAfter === true
+    && (record.mode === 'notebook' || record.feedbackMode !== 'none');
+}
+
+// One practice answer, marked like the real thing but stored nowhere. Only for
+// a student who has handed in, so it can never help with a graded attempt.
+async function markPractice(env, code, body) {
+  const record = await getJson(env.ASSIGN_BUCKET, recordKey(code));
+  if (!record) return fail('Assignment not found.', 404);
+  if (!practiceAllowed(record) || record.mode === 'notebook') return fail('Practice is not available for this assignment.', 403);
+  const attempt = await loadAttemptById(env, code, sanitizeAttemptId(body.attemptId));
+  if (!attempt) return fail('Your session has expired. Please sign in again.', 401);
+  if (!attempt.submitted) return fail('Hand in your attempt before practising.', 409);
+  const index = parseIndex(body.index, record.sentenceCount);
+  if (index < 0) return fail('No such sentence.', 404);
+  return json({ ok: true, feedback: markSentence(record, index, sanitizeText(body.text, MAX_ANSWER_CHARS)) });
 }
 
 async function attemptResults(env, code, attemptId) {
@@ -1143,12 +1322,23 @@ async function route(request, env) {
       return attemptDetail(env, code, studentKey, attemptId);
     }
 
-    if (path === '/api/teacher/attempts/reopen' && method === 'POST') {
+    if (path === '/api/teacher/assignments/update-settings') return updateSettings(env, body);
+    if (path === '/api/teacher/assignments/update-content') return updateContent(env, body);
+    if (path === '/api/teacher/assignments/audio') return teacherAudio(env, body);
+
+    if (path.startsWith('/api/teacher/attempts/') && method === 'POST') {
       const code = sanitizeCode(body.code);
       const studentKey = String(body.studentKey || '').replace(/[^a-z0-9._@-]/gi, '').slice(0, 96);
       const attemptId = sanitizeAttemptId(body.attemptId);
-      if (!code || !studentKey || !attemptId) return fail('Missing attempt details.');
-      return reopenAttempt(env, code, studentKey, attemptId);
+      if (path === '/api/teacher/attempts/extra') {
+        return code && studentKey ? grantExtraAttempt(env, code, studentKey) : fail('Missing student details.');
+      }
+      if (path === '/api/teacher/attempts/reopen' || path === '/api/teacher/attempts/delete') {
+        if (!code || !studentKey || !attemptId) return fail('Missing attempt details.');
+        return path.endsWith('/reopen')
+          ? reopenAttempt(env, code, studentKey, attemptId)
+          : deleteAttempt(env, code, studentKey, attemptId);
+      }
     }
 
     if (path === '/api/teacher/assignments/status') {
@@ -1238,6 +1428,9 @@ async function route(request, env) {
     if (method === 'POST' && action === 'submit') {
       const body = await readJsonBody(request);
       return retryingOnConflict(() => submitAttempt(env, code, body));
+    }
+    if (method === 'POST' && action === 'practice') {
+      return markPractice(env, code, await readJsonBody(request));
     }
 
     return fail('Unknown endpoint.', 404);

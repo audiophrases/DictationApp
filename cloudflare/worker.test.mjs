@@ -334,7 +334,14 @@ check('replays are free once submitted', replayAfter.status === 200);
 const secondAttempt = await call(`/api/assignments/${code}/start`, {
   method: 'POST', body: { studentToken: STUDENT_TOKEN },
 });
-check('attempts limit enforced', secondAttempt.status === 403, secondAttempt.payload.error);
+check('a returning student gets their handed-in result back', secondAttempt.status === 200
+  && secondAttempt.payload.submitted && secondAttempt.payload.attemptId === attemptId
+  && secondAttempt.payload.outcome?.scorePercent === submit.payload.scorePercent);
+check('and is told no attempts are left', secondAttempt.payload.canStartNew === false && secondAttempt.payload.attemptsLeft === 0);
+const freshBlocked = await call(`/api/assignments/${code}/start`, {
+  method: 'POST', body: { studentToken: STUDENT_TOKEN, fresh: true },
+});
+check('attempts limit enforced', freshBlocked.status === 403, freshBlocked.payload.error);
 
 // ------------------------------------------------------ per-sentence feedback
 // Each answer comes back marked, which is the one time the worker hands over
@@ -609,7 +616,7 @@ check('submission preserves concurrent listen and warning counts',
     && racingSubmit.payload.warnings === 1);
 
 const submitFirstStart = await call(`/api/assignments/${raceCode}/start`, {
-  method: 'POST', body: { studentToken: STUDENT_TOKEN },
+  method: 'POST', body: { studentToken: STUDENT_TOKEN, fresh: true },
 });
 const submitFirstAttempt = submitFirstStart.payload.attemptId;
 const [lateAnswer, firstSubmit] = await raceAttemptWrite(raceCode,
@@ -835,10 +842,99 @@ const nbReopened = await call(`/api/assignments/${nbCode}/start`, { method: 'POS
 check('a reopened notebook resumes the same attempt, unfinished', nbReopened.status === 200 && nbReopened.payload.attemptId === nbId
   && !nbReopened.payload.submitted && !nbReopened.payload.outcome);
 check('a reopened notebook can be handed in again', (await call(`/api/assignments/${nbCode}/submit`, { method: 'POST', body: { attemptId: nbId, answers: [] } })).status === 200);
-const typedReopen = await call('/api/teacher/attempts/reopen', {
-  method: 'POST', body: { password: PASSWORD, code, studentKey: 'usr_testkid@override.local', attemptId: nbId },
+
+// ------------------------------------------- teacher edits and per-student controls
+const KID = 'usr_testkid@override.local';
+async function publishTyped(editCode, count) {
+  for (let i = 0; i < count; i += 1) {
+    await call(`/api/teacher/assignments/${editCode}/audio/${i}`, {
+      method: 'PUT', headers: { 'Content-Type': 'audio/mpeg', 'X-Teacher-Password': PASSWORD }, raw: new Uint8Array([0xff, 0xfb, i]),
+    });
+  }
+  return call(`/api/teacher/assignments/${editCode}/publish`, { method: 'POST', body: { password: PASSWORD } });
+}
+const begin = (editCode, extra = {}) => call(`/api/assignments/${editCode}/start`, {
+  method: 'POST', body: { studentToken: STUDENT_TOKEN, ...extra },
 });
-check('typed attempts cannot be reopened', typedReopen.status === 400);
+const teacher = (route, body) => call(`/api/teacher/${route}`, { method: 'POST', body: { password: PASSWORD, ...body } });
+
+const editCreate = await teacher('assignments/create', {
+  text: 'One sentence here. Two sentences here.', title: 'Edit me', attemptsLimit: 1, practiceAfter: true,
+});
+const editCode = editCreate.payload.code;
+check('practice after hand-in is stored when chosen', editCreate.payload.record?.practiceAfter === true);
+await publishTyped(editCode, 2);
+
+const firstRun = await begin(editCode);
+const run1 = firstRun.payload.attemptId;
+check('a first start reports the attempts left after it', firstRun.payload.attemptsLeft === 0 && firstRun.payload.canStartNew === false);
+const earlyPractice = await call(`/api/assignments/${editCode}/practice`, {
+  method: 'POST', body: { attemptId: run1, index: 1, text: 'Two sentences here.' },
+});
+check('practice is refused before handing in', earlyPractice.status === 409);
+await call(`/api/assignments/${editCode}/submit`, { method: 'POST', body: { attemptId: run1, answers: ['One sentence here.', 'wrong'] } });
+
+const practice = await call(`/api/assignments/${editCode}/practice`, {
+  method: 'POST', body: { attemptId: run1, index: 1, text: 'Two sentences here.' },
+});
+check('practice after hand-in is marked', practice.status === 200 && practice.payload.feedback?.accuracy === 1);
+const afterPractice = await begin(editCode);
+check('practice changes nothing stored', afterPractice.payload.outcome?.results?.sentences?.[1]?.typed === 'wrong'
+  && afterPractice.payload.practice === true);
+
+const gradingLocked = await teacher('assignments/update-settings', { code: editCode, grading: { ignoreCase: false } });
+check('marking cannot change once someone has handed in', gradingLocked.status === 400);
+check('students cannot change settings',
+  (await call('/api/teacher/assignments/update-settings', { method: 'POST', body: { code: editCode, attemptsLimit: 0 } })).status === 401);
+const edited = await teacher('assignments/update-settings', {
+  code: editCode, title: 'Edited', maxListens: 2, dueAt: null, allowSlowdown: true, feedbackMode: 'sentence',
+});
+check('teacher can change settings later', edited.status === 200 && edited.payload.record.title === 'Edited'
+  && edited.payload.record.maxListens === 2 && edited.payload.record.settings.allowSlowdown === true
+  && edited.payload.record.feedbackMode === 'sentence' && edited.payload.record.attemptsLimit === 1);
+
+const extra = await teacher('attempts/extra', { code: editCode, studentKey: KID });
+check('teacher can give one student another attempt', extra.status === 200 && extra.payload.extraAttempts === 1);
+check('the student sees it', (await begin(editCode)).payload.canStartNew === true);
+const secondRun = await begin(editCode, { fresh: true });
+const run2 = secondRun.payload.attemptId;
+check('and can start it', secondRun.status === 200 && run2 && run2 !== run1 && !secondRun.payload.submitted);
+await call(`/api/assignments/${editCode}/submit`, { method: 'POST', body: { attemptId: run2, answers: ['x', 'y'] } });
+check('after which the limit applies again', (await begin(editCode, { fresh: true })).status === 403);
+
+const removed = await teacher('attempts/delete', { code: editCode, studentKey: KID, attemptId: run2 });
+check('teacher can delete an attempt', removed.status === 200);
+const afterDelete = await teacher('assignments/get', { code: editCode });
+check('a deleted attempt is gone and frees its place', afterDelete.payload.attempts.length === 1
+  && (await begin(editCode)).payload.canStartNew === true);
+
+const typedReopen = await teacher('attempts/reopen', { code: editCode, studentKey: KID, attemptId: run1 });
+check('typed attempts can be reopened too', typedReopen.status === 200 && typedReopen.payload.attempt.submitted === false
+  && typedReopen.payload.attempt.results === null);
+const resumedTyped = await begin(editCode);
+check('a reopened typed attempt resumes with its answers', resumedTyped.payload.attemptId === run1
+  && !resumedTyped.payload.submitted && resumedTyped.payload.answers[1] === 'wrong');
+
+const heard = await teacher('assignments/audio', { code: editCode, index: 1 });
+check('teacher can listen to a recording', heard.status === 200 && heard.headers.get('Content-Type') === 'audio/mpeg');
+
+const rewritten = await teacher('assignments/update-content', {
+  code: editCode, text: 'Brand new text. With two. And three.',
+});
+check('teacher can replace the text, clearing student work', rewritten.status === 200
+  && rewritten.payload.sentences.length === 3 && rewritten.payload.cleared === 1 && rewritten.payload.record.status === 'draft');
+check('settings survive a text edit', rewritten.payload.record.title === 'Edited' && rewritten.payload.record.maxListens === 2);
+check('students cannot open it while it is re-recorded', (await begin(editCode)).status === 404);
+check('it cannot be published before every new sentence has audio',
+  (await call(`/api/teacher/assignments/${editCode}/publish`, { method: 'POST', body: { password: PASSWORD } })).status === 400);
+await publishTyped(editCode, 3);
+const afterRewrite = await begin(editCode);
+check('students start the new text afresh', afterRewrite.status === 200 && !afterRewrite.payload.submitted
+  && afterRewrite.payload.attemptId !== run1 && afterRewrite.payload.meta.sentenceCount === 3);
+const gradingNow = await teacher('assignments/update-settings', { code: editCode, grading: { ignoreCase: false } });
+check('marking can change again once nobody has handed in', gradingNow.status === 200
+  && gradingNow.payload.record.grading.ignoreCase === false);
+await teacher('assignments/delete', { code: editCode });
 await call('/api/teacher/assignments/status', { method: 'POST', body: { password: PASSWORD, code: nbCode, status: 'archived' } });
 const nbResume = await call(`/api/assignments/${nbCode}/start`, { method: 'POST', body: { studentToken: STUDENT_TOKEN } });
 check('signed-in student can reopen corrections after assignment is archived', nbResume.status === 200 && nbResume.payload.submitted && nbResume.payload.outcome?.corrections === notebookText);
@@ -896,9 +992,14 @@ const closed = await call('/api/teacher/assignments/status', {
 });
 check('assignment can be archived', closed.status === 200);
 const afterArchive = await call(`/api/assignments/${code}/start`, {
-  method: 'POST', body: { studentToken: STUDENT_TOKEN },
+  method: 'POST', body: { studentToken: STUDENT_TOKEN, fresh: true },
 });
 check('archived assignment refuses new starts', afterArchive.status === 403);
+const archivedReturn = await call(`/api/assignments/${code}/start`, {
+  method: 'POST', body: { studentToken: STUDENT_TOKEN },
+});
+check('but still shows a returning student their result', archivedReturn.status === 200
+  && archivedReturn.payload.submitted && archivedReturn.payload.canStartNew === false);
 
 const del = await call('/api/teacher/assignments/delete', {
   method: 'POST', body: { password: PASSWORD, code },

@@ -35,6 +35,17 @@ export async function prepareNotebookSentence(sentence, { lang, rate, context, d
   return buffers.map((buffer, i) => wavClip(buffer, 0, buffer.duration, i === buffers.length - 1 ? cue : null));
 }
 
+// One stored segment on its own, for re-recording it: voiced as the end of a
+// sentence or not, and with that sentence's spoken punctuation when it ends one.
+export async function prepareNotebookSegment(phrase, { endsSentence, sentence, lang, rate, context, cueCache = new Map() }) {
+  const label = endsSentence ? sentenceEndCue(sentence, lang) : '';
+  const [cue, buffer] = await Promise.all([
+    label ? punctuationAudio(label, { lang, rate, context, cueCache }) : null,
+    speak(spokenPhrase(phrase, endsSentence), { lang, rate, context }),
+  ]);
+  return wavClip(buffer, 0, buffer.duration, cue);
+}
+
 export async function prepareNotebook(text, settings, onProgress) {
   const context = new AudioContext({ sampleRate: 24000 });
   const clips = [];

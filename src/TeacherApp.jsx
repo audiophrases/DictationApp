@@ -6,6 +6,7 @@ import TeacherDashboard from './screens/teacher/TeacherDashboard';
 import CreateAssignmentScreen from './screens/teacher/CreateAssignmentScreen';
 import AssignmentDetail from './screens/teacher/AssignmentDetail';
 import AttemptDetail from './screens/teacher/AttemptDetail';
+import EditAssignmentScreen from './screens/teacher/EditAssignmentScreen';
 import { hasTeacherPassword } from './lib/teacherAuth';
 import { assignmentsAvailable } from './lib/api';
 
@@ -63,6 +64,14 @@ function TeacherApp({ onExit }) {
         onFinished={() => setView('dashboard')}
       />
     );
+  } else if (view === 'edit') {
+    screen = (
+      <EditAssignmentScreen
+        code={code}
+        requireServer={requireServer}
+        onBack={() => setView('assignment')}
+      />
+    );
   } else if (view === 'attempt') {
     screen = (
       <AttemptDetail
@@ -76,6 +85,7 @@ function TeacherApp({ onExit }) {
       <AssignmentDetail
         code={code}
         onBack={() => setView('dashboard')}
+        onEdit={() => setView('edit')}
         onOpenAttempt={(row) => {
           setAttempt(row);
           setView('attempt');

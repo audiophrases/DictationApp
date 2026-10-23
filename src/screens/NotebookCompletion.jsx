@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { CheckCircle, RefreshCw } from 'lucide-react';
 
-export default function NotebookCompletion({ outcome, onRefresh, onNewPassage }) {
+export default function NotebookCompletion({ outcome, onRefresh, onNewPassage, actions }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -28,6 +28,7 @@ export default function NotebookCompletion({ outcome, onRefresh, onNewPassage })
           <p className="field-hint">You can reopen this assignment later with the same school account.</p>
         </>}
       </>}
+      {actions}
       {error && <p className="fetch-error" role="alert">{error}</p>}
       {onNewPassage && <button className="btn-ghost" onClick={onNewPassage}>New passage</button>}
     </div>

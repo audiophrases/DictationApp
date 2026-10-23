@@ -147,13 +147,16 @@ Students hear segments without an answer box or automatic feedback:
 - **Enter** advances to the next segment; on the last one it finishes the dictation.
 - **Left / Right arrows** move backward / forward and play that segment.
 
-The app records complete sentences with the existing natural neural voices
-first, then uses word timings to cut the recordings into short phrases, usually
-2–7 words. English uses part-of-speech tagging to identify subjects, verb
-phrases and prepositional phrases: “The quick brown fox / jumps over the lazy
-dog.” Other languages use punctuation and a bounded word-count fallback.
-Words are never dropped or repeated. Segments retain the original recording's
-phrasing. Recording failures can be retried before publishing.
+Sentences are split into the grammatical units a teacher would read out,
+usually 2–6 words: “Moving abroad / helped him understand / his own culture.”
+English uses part-of-speech tagging to find subjects, verb groups, objects and
+prepositional phrases; other languages use punctuation, phrase length and a
+list of words a phrase must not end on (articles, prepositions, pronouns,
+helping verbs). Words are never dropped or repeated. Each phrase is recorded on
+its own with the natural neural voices — cutting one sentence recording at word
+timings clipped word endings — and a phrase that continues the sentence is
+voiced with a continuing intonation. Recording failures can be retried before
+publishing.
 
 The last segment of each sentence includes a separate spoken punctuation cue
 after a short pause: **“period”**, **“question mark”** or **“exclamation mark”**
@@ -168,9 +171,9 @@ records completion and waits for the teacher to choose **Release corrections to
 students** on the assignment detail page. Only students who have finished can
 retrieve the passage, then correct their notebooks by hand. They can check for
 corrections or reopen the link using the same school account, even after the due
-date or archiving. Notebook work receives no automatic score. Each notebook
-assignment has one completion per student. Free practice ends with a simple
-completion screen. Use an assignment for correction release inside the app.
+date or archiving. Notebook work receives no automatic score. The teacher sets
+how many attempts each student has (one by default). Free practice ends on the
+full passage so students can correct their own notebooks.
 
 Notebook assignments require the updated frontend, Node voice server (word
 timings), and Cloudflare Worker (WAV playback and correction release).
@@ -244,6 +247,32 @@ PinPlay's student roster and teacher password. The Google client must authorize
 the origin serving this app; the setup guide lists the deployment order and
 origins. Until a worker is configured, the assignment
 features simply stay switched off and free practice is unaffected.
+
+### Changing an assignment later
+
+On the assignment page, **Edit** opens three sections, each saved on its own:
+
+- **Settings** — title, class, due date, attempts (notebook too, up to
+  unlimited), replays, feedback, slow playback, and **free practice after
+  handing in**. They apply straight away. Marking rules lock once any student
+  has handed in, because their scores were marked under them.
+- **Recordings** — the same text recorded again: all of it (for example at
+  another speed), or one sentence or segment that sounds wrong. Each can be
+  played first.
+- **Text** — a new passage under the same code and link. It deletes every
+  student's attempts and the old recordings (after a warning), records the
+  new text, and publishes it again. Notebook corrections need releasing again.
+
+On a student's attempt, **Student options** can **reopen** it (undoing the
+hand-in, for an accidental one or a dictation finished early; plays already
+used still count), **give one more attempt** on top of the class limit, or
+**delete** it so it no longer counts.
+
+A student who comes back after handing in sees their result (or the notebook
+corrections), even after the due date, with **Start a new attempt** when they
+have one left and **Practise again** when practice is on. Practice is marked
+sentence by sentence and recorded nowhere; it is unavailable when Feedback is
+"Nothing", because marking would show the text.
 
 `npm run test:worker` exercises the whole flow — including the checks that the
 text cannot leak early.

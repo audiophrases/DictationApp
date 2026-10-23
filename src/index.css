@@ -1001,3 +1001,20 @@ input:focus {
     animation: none;
   }
 }
+
+/* Teacher: editing an existing assignment. */
+.edit-sections { display: flex; flex-direction: column; gap: 1.5rem; }
+.edit-section { border-top: 1px solid var(--glass-border); padding-top: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.edit-section h2 { font-size: 1.2rem; }
+.edit-section .field-hint { margin-top: 0; }
+.edit-check { display: flex; align-items: center; gap: 0.6rem; }
+.edit-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.75rem; }
+.edit-warning { display: flex; gap: 0.5rem; align-items: flex-start; color: var(--warning-color); font-size: 0.9rem; }
+.edit-warning svg, .edit-done svg { flex-shrink: 0; margin-top: 0.2rem; }
+.edit-done { display: flex; gap: 0.5rem; color: var(--success-color); font-weight: 500; }
+.segment-list { list-style: none; display: flex; flex-direction: column; gap: 0.35rem; max-height: 420px; overflow-y: auto; }
+.segment-list li { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.6rem; border-radius: 8px; background: var(--surface-sunken); }
+.segment-number { min-width: 1.6rem; color: var(--text-muted); font-size: 0.8rem; text-align: right; }
+.segment-text { flex: 1; min-width: 0; }
+.attempt-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+.next-steps { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 0.75rem; margin-top: 1.25rem; }

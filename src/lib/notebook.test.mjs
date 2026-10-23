@@ -193,3 +193,13 @@ test('numbers, clock times and URLs are not split at internal punctuation', () =
   assert.ok(segments.some((segment) => segment.includes('1,000')));
   assert.ok(segments.some((segment) => segment.includes('12:30')));
 });
+
+test('stored segments group back into their sentences without re-splitting', async () => {
+  const { segmentGroups } = await import('./notebookShared.js');
+  const segments = ['Moving abroad', 'helped him understand', 'his own culture.', 'We celebrated', 'the festival.'];
+  assert.deepEqual(segmentGroups(segments), [
+    { sentence: 'Moving abroad helped him understand his own culture.', start: 0, count: 3 },
+    { sentence: 'We celebrated the festival.', start: 3, count: 2 },
+  ]);
+  assert.deepEqual(segmentGroups(['One sentence.', 'Two sentences.']).map((g) => g.count), [1, 1]);
+});

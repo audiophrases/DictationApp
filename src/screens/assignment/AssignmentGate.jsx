@@ -28,7 +28,10 @@ function AssignmentGate({ code, onStart, starting, startError, onIdentityChange 
     && savedAttempt?.email?.toLowerCase() === session.student.email.toLowerCase();
   const closed = meta && meta.status !== 'active';
   const overdue = meta?.dueAt && Date.now() > meta.dueAt;
-  const canOpen = meta?.mode === 'notebook' || (!closed && !overdue);
+  // A closed or overdue assignment still opens: a student who handed it in
+  // comes back to their result there. The worker refuses anyone else, with
+  // the same reason shown here.
+  const canOpen = !!meta;
   const needsSignIn = !!meta && canOpen && !session;
 
   useEffect(() => {
@@ -122,9 +125,12 @@ function AssignmentGate({ code, onStart, starting, startError, onIdentityChange 
         </div>
         {meta.mode === 'notebook' && <p className="field-hint" style={{ marginBottom: '1rem' }}>Write in your notebook. Your teacher releases corrections later. Reopen this link to check them.</p>}
         {meta.allowSlowdown && <p className="field-hint" style={{ marginBottom: '1rem' }}>Your teacher allows slower playback. Use the Speed dropdown to choose Relaxed or Slow.</p>}
-        {!canOpen && closed ? <p className="empty-note">This assignment is closed. Ask your teacher to reopen it.</p>
-          : !canOpen && overdue ? <p className="empty-note">The due date has passed.</p>
-          : <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        {(closed || overdue) && (
+          <p className="field-hint" style={{ marginBottom: '1rem' }}>
+            {closed ? 'This assignment is closed.' : 'The due date has passed.'} If you handed it in, you can still open your result.
+          </p>
+        )}
+        {<div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {session ? <>
               <div style={{ overflowWrap: 'anywhere' }}>
                 <p>Signed in as <strong>{session.student.displayName || session.student.email}</strong></p>

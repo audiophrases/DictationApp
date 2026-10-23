@@ -33,9 +33,45 @@ export function getAttempt(code, studentKey, attemptId) {
   return teacherPost('/api/teacher/attempts/get', { code, studentKey, attemptId });
 }
 
-// Notebook only: undoes an accidental hand-in so the student can carry on.
+// Undoes a hand-in so the student carries on in the same attempt.
 export function reopenAttempt(code, studentKey, attemptId) {
   return teacherPost('/api/teacher/attempts/reopen', { code, studentKey, attemptId });
+}
+
+// One more attempt for one student, on top of the assignment's limit.
+export function grantExtraAttempt(code, studentKey) {
+  return teacherPost('/api/teacher/attempts/extra', { code, studentKey });
+}
+
+export function deleteAttempt(code, studentKey, attemptId) {
+  return teacherPost('/api/teacher/attempts/delete', { code, studentKey, attemptId });
+}
+
+// Only the fields passed are changed.
+export function updateAssignmentSettings(code, fields) {
+  return teacherPost('/api/teacher/assignments/update-settings', { code, ...fields });
+}
+
+// New text: deletes every attempt and recording, and returns the assignment to
+// draft with its new sentences, ready to be recorded and published again.
+export function updateAssignmentContent(code, fields) {
+  return teacherPost('/api/teacher/assignments/update-content', { code, ...fields });
+}
+
+// One stored recording, for the teacher to listen to.
+export async function fetchTeacherAudio(code, index) {
+  let res;
+  try {
+    res = await fetch(workerUrl('/api/teacher/assignments/audio'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, index, password: getTeacherPassword() }),
+    });
+  } catch {
+    throw new ApiError("Couldn't reach the assignment server.", { network: true });
+  }
+  if (!res.ok) throw new ApiError(`Couldn't load that recording (${res.status}).`, { status: res.status });
+  return res.blob();
 }
 
 export function setAssignmentStatus(code, status) {
@@ -84,10 +120,19 @@ export function getAssignmentMeta(code) {
   return workerApi(`/api/assignments/${code}/meta`);
 }
 
-export function startAttempt(code, studentToken) {
+// `fresh` asks for a new attempt instead of returning to the last one handed in.
+export function startAttempt(code, studentToken, { fresh = false } = {}) {
   return workerApi(`/api/assignments/${code}/start`, {
     method: 'POST',
-    body: { studentToken },
+    body: { studentToken, ...(fresh ? { fresh: true } : {}) },
+  });
+}
+
+// One practice answer after handing in, marked but stored nowhere.
+export function markPractice(code, attemptId, index, text) {
+  return workerApi(`/api/assignments/${code}/practice`, {
+    method: 'POST',
+    body: { attemptId, index, text },
   });
 }
 

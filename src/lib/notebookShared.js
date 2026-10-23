@@ -50,3 +50,26 @@ export function spokenPhrase(phrase, isLast) {
   if (isLast || /[,;:—–]["”’»)]*$/u.test(phrase)) return phrase;
   return `${phrase},`;
 }
+
+// Which sentence each stored segment belongs to, worked out from the segments
+// alone: [{ sentence, start, count }]. Re-recording an existing assignment uses
+// this instead of splitting its text again, because the splitter may have
+// changed since the assignment was made — its stored segments are what
+// students hear and are marked on, and their recordings must match them.
+export function segmentGroups(segments) {
+  const groups = [];
+  let start = 0;
+  for (const sentence of splitIntoSentences(segments.join(' '))) {
+    const target = compact(sentence);
+    let count = 0;
+    let joined = '';
+    while (start + count < segments.length && joined.length < target.length) {
+      joined = compact(`${joined} ${segments[start + count]}`);
+      count += 1;
+    }
+    if (joined !== target) return segments.map((segment, i) => ({ sentence: segment, start: i, count: 1 }));
+    groups.push({ sentence, start, count });
+    start += count;
+  }
+  return groups;
+}

@@ -125,3 +125,11 @@ export async function workerApi(path, { method = 'GET', body, headers = {}, time
   }
   return data;
 }
+
+// The voice server answers a failure with JSON naming the cause (e.g. Edge
+// refusing the connection). Include it, so "didn't record" says why.
+export async function voiceFailure(res, what) {
+  let detail = '';
+  try { detail = (await res.json()).details || ''; } catch { /* not JSON */ }
+  return new Error(`The voice server couldn't record ${what} (${res.status}${detail ? `: ${detail}` : ''}).`);
+}

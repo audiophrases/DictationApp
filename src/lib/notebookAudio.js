@@ -1,4 +1,4 @@
-import { ttsBase } from './api';
+import { ttsBase, voiceFailure } from './api';
 import { notebookPlan } from './notebook';
 import { sentenceEndCue, spokenPhrase } from './notebookShared';
 import { wavClip } from './notebookWav';
@@ -7,7 +7,7 @@ import { deliveryFor } from './delivery';
 async function speak(text, { lang, rate, context }) {
   const query = new URLSearchParams({ text, lang, rate });
   const response = await fetch(`${ttsBase()}/api/tts?${query}`);
-  if (!response.ok) throw new Error(`Could not record notebook audio (${response.status}). Please try again.`);
+  if (!response.ok) throw await voiceFailure(response, 'notebook audio');
   return context.decodeAudioData(await response.arrayBuffer());
 }
 

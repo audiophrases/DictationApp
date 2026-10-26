@@ -8,7 +8,7 @@
 //
 // It costs the teacher a wait of a few seconds per sentence, once, and every
 // student thereafter plays audio straight out of R2 with no TTS call at all.
-import { ttsBase } from './api';
+import { ttsBase, voiceFailure } from './api';
 import { uploadSentenceAudio } from './assignmentApi';
 import { prepareNotebookSegment, prepareNotebookSentence } from './notebookAudio';
 import { notebookPlan } from './notebook';
@@ -24,7 +24,7 @@ async function synthesize(text, lang, rate) {
   // No timeout on purpose: the first call of the day may be waiting on Render
   // to wake up, which the caller covers with the waking overlay.
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`The voice server refused sentence audio (${res.status}).`);
+  if (!res.ok) throw await voiceFailure(res, 'sentence audio');
   const blob = await res.blob();
   if (!blob.size) throw new Error('The voice server returned empty audio.');
   return blob;

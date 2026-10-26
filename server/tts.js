@@ -1,5 +1,4 @@
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
-import './edgeTtsHost.js';
 import { cacheKey, getOrSynthesize } from './ttsCache.js';
 
 // Extracted from vite.config.js so the exact same handler can run under the

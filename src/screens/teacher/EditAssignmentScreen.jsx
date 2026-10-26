@@ -202,16 +202,18 @@ function RecordingsSection({ code, data, onSaved, requireServer }) {
     setBusy(only ? only[0] : 'all');
     setError('');
     let count = 0;
+    // Why the last failure happened, shown with the list of what failed.
+    let reason = '';
     const total = only ? only.length : sentences.length;
     setProgress(`0 of ${total}`);
     requireServer?.();
     try {
       const failed = await rerecordSegments(code, sentences, {
         lang: record.settings.lang, rate, mode: record.mode, only,
-        onSettled: (_i, failure) => { count += 1; setProgress(`${count} of ${total}`); if (failure) setError(failure.message); },
+        onSettled: (_i, failure) => { count += 1; setProgress(`${count} of ${total}`); if (failure) reason = failure.message; },
       });
       if (failed.length) {
-        setError(`${unit === 'segment' ? 'Segment' : 'Sentence'}${failed.length > 1 ? 's' : ''} ${failed.map((i) => i + 1).join(', ')} didn't record. The old recording is still there; try again.`);
+        setError(`${unit === 'segment' ? 'Segment' : 'Sentence'}${failed.length > 1 ? 's' : ''} ${failed.map((i) => i + 1).join(', ')} didn't record${reason ? ` (${reason})` : ''}. The old recording is still there; try again.`);
       }
       setDone(new Set((only || sentences.map((_, i) => i)).filter((i) => !failed.includes(i))));
       // A whole re-record at another speed changes what the assignment is

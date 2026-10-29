@@ -139,14 +139,33 @@ test('punctuation recording is appended after silence within the same WAV clip',
   const audio = (values) => ({ sampleRate: 20, length: values.length, getChannelData: () => Float32Array.from(values) });
   const original = audio([0.25, 0.5, -0.25, -0.5]);
   const cue = audio([-1, 1]);
+  const leadIn = 8; // 0.4 seconds at 20 Hz
   const plain = new DataView(await wavClip(original, 0, 0.1).arrayBuffer());
-  assert.equal(plain.getUint32(40, true), 4);
+  assert.equal(plain.getUint32(40, true), (leadIn + 2) * 2);
   const appended = new DataView(await wavClip(original, 0.1, 0.2, cue).arrayBuffer());
-  assert.equal(appended.getUint32(40, true), (2 + 7 + 2) * 2);
-  assert.equal(appended.getInt16(44, true), -8192);
-  for (let i = 2; i < 9; i++) assert.equal(appended.getInt16(44 + i * 2, true), 0);
-  assert.equal(appended.getInt16(44 + 9 * 2, true), -32768);
-  assert.equal(appended.getInt16(44 + 10 * 2, true), 32767);
+  assert.equal(appended.getUint32(40, true), (leadIn + 2 + 7 + 2) * 2);
+  assert.equal(appended.getInt16(44 + leadIn * 2, true), -8192);
+  for (let i = leadIn + 2; i < leadIn + 9; i++) assert.equal(appended.getInt16(44 + i * 2, true), 0);
+  assert.equal(appended.getInt16(44 + (leadIn + 9) * 2, true), -32768);
+  assert.equal(appended.getInt16(44 + (leadIn + 10) * 2, true), 32767);
+});
+
+test('segments have a silent lead-in and preserve even a quiet first syllable', async () => {
+  for (const sampleRate of [24000, 44100]) {
+    const samples = Float32Array.from([0.002, -0.003, 0, 0.5, -1, 1]);
+    const buffer = { sampleRate, length: samples.length, getChannelData: () => samples };
+    const clip = wavClip(buffer, 0, samples.length / sampleRate);
+    const wav = new DataView(await clip.arrayBuffer());
+    const leadIn = Math.round(0.4 * sampleRate);
+    assert.equal(clip.type, 'audio/wav');
+    assert.equal(wav.getUint32(4, true), wav.byteLength - 8);
+    assert.equal(wav.getUint32(24, true), sampleRate);
+    assert.equal(wav.getUint32(40, true), (leadIn + samples.length) * 2);
+    for (let i = 0; i < leadIn; i++) assert.equal(wav.getInt16(44 + i * 2, true), 0);
+    // The first quiet sounds must not be trimmed or faded away.
+    assert.deepEqual(Array.from({ length: samples.length }, (_, i) => wav.getInt16(44 + (leadIn + i) * 2, true)),
+      [65, -98, 0, 16383, -32768, 32767]);
+  }
 });
 
 test('the punctuation cue keeps only a short tail of its trailing silence', async () => {
@@ -158,7 +177,7 @@ test('the punctuation cue keeps only a short tail of its trailing silence', asyn
   const original = { sampleRate: rate, length: 2, getChannelData: () => Float32Array.from([0.25, 0.25]) };
   const cue = { sampleRate: rate, length: padded.length, getChannelData: () => padded };
   const clip = new DataView(await wavClip(original, 0, 0.02, cue).arrayBuffer());
-  assert.equal(clip.getUint32(40, true), (2 + 35 + 3 + 15) * 2);
+  assert.equal(clip.getUint32(40, true), (40 + 2 + 35 + 3 + 15) * 2);
 });
 
 test('assignment validation accepts only segment plans preserving every original word', () => {

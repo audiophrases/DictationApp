@@ -158,6 +158,10 @@ timings clipped word endings — and a phrase that continues the sentence is
 voiced with a continuing intonation. Recording failures can be retried before
 publishing.
 
+Notebook clips include a 0.4-second silent lead-in so audio output can wake up
+before the first word. After updating the app, re-record an existing
+assignment's audio in the assignment editor to add the lead-in to stored clips.
+
 The last segment of each sentence includes a separate spoken punctuation cue
 after a short pause: **“period”**, **“question mark”** or **“exclamation mark”**
 (localized to the selected language). Replaying repeats both the phrase and

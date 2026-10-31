@@ -34,6 +34,8 @@ import { gradeDictation, gradeSentence, DEFAULT_GRADING_OPTIONS } from '../src/l
 import { splitIntoSentences } from '../src/lib/sentences.js';
 import { validatedNotebookSegments } from '../src/lib/notebookShared.js';
 import { deliveryFor } from '../src/lib/delivery.js';
+import { audioClipKey, encryptAudio, newAudioSecret } from './audioCache.js';
+import { encodeAudioKey } from '../src/lib/audioCipher.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -41,7 +43,7 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type,X-Teacher-Password,X-Student-Token',
   // The audio response reports the student's remaining replays in a header, so
   // the count on screen never needs a second round trip to stay honest.
-  'Access-Control-Expose-Headers': 'X-Listens-Left',
+  'Access-Control-Expose-Headers': 'X-Listens-Left,X-Audio-Version,X-Audio-Type',
 };
 
 // No I/O/0/1: these codes get read aloud and copied off a whiteboard.
@@ -841,6 +843,7 @@ function studentMeta(record) {
     dueAt: record.dueAt,
     lang: record.settings.lang,
     allowSlowdown: record.app !== 'ipa' && record.settings.allowSlowdown === true,
+    audioPreload: record.app !== 'ipa' ? 'aes-gcm-v1' : undefined,
     // ipa only: the pinned strictness level; undefined for dictation, which
     // JSON.stringify simply drops.
     accuracyIndex: record.settings.accuracyIndex,
@@ -976,6 +979,7 @@ async function startAttempt(env, code, body, request) {
     warnings: 0,
     results: null,
     scorePercent: null,
+    ...(record.app !== 'ipa' ? { audioSecret: newAudioSecret() } : {}),
   };
   await saveAttempt(env, attempt);
 
@@ -996,6 +1000,72 @@ async function loadAttemptById(env, code, attemptId) {
   const hit = objects.find((o) => o.key.endsWith(`/${attemptId}.json`));
   if (!hit) return null;
   return getJsonWithEtag(env.ASSIGN_BUCKET, hit.key);
+}
+
+async function preloadAudio(env, code, indexRaw, attemptId) {
+  const record = await getJson(env.ASSIGN_BUCKET, recordKey(code));
+  if (!record) return fail('Assignment not found.', 404);
+  const index = parseIndex(indexRaw, record.sentenceCount);
+  if (index < 0) return fail('No such sentence.', 404);
+  const attempt = await loadAttemptById(env, code, attemptId);
+  if (!attempt) return fail('Your session has expired. Please sign in again.', 401);
+
+  // Older attempts acquire a secret once, without using any listens. The
+  // conditional write and router retry also protect concurrent answer saves.
+  if (!attempt.audioSecret) {
+    attempt.audioSecret = newAudioSecret();
+    await saveAttempt(env, attempt);
+  }
+  const object = await env.ASSIGN_BUCKET.get(audioKey(code, index));
+  if (!object) return fail('That sentence has no audio yet.', 404);
+  // Uploads are bounded to 5 MB. Do not buffer a legacy/foreign oversized clip.
+  if (object.size > MAX_AUDIO_BYTES) {
+    await object.body.cancel();
+    return fail('That clip is too large to preload.', 413);
+  }
+  const bytes = await new Response(object.body).arrayBuffer();
+  if (bytes.byteLength > MAX_AUDIO_BYTES) return fail('That clip is too large to preload.', 413);
+  const key = await audioClipKey(attempt, index, object.etag);
+  return new Response(await encryptAudio(bytes, key), {
+    headers: {
+      ...CORS_HEADERS,
+      'Content-Type': 'application/octet-stream',
+      'Cache-Control': 'no-store',
+      'X-Audio-Version': object.etag,
+      'X-Audio-Type': object.httpMetadata?.contentType || 'audio/mpeg',
+    },
+  });
+}
+
+async function authorizeAudio(env, code, indexRaw, body) {
+  const record = await getJson(env.ASSIGN_BUCKET, recordKey(code));
+  if (!record) return fail('Assignment not found.', 404);
+  const index = parseIndex(indexRaw, record.sentenceCount);
+  if (index < 0) return fail('No such sentence.', 404);
+  const attempt = await loadAttemptById(env, code, sanitizeAttemptId(body.attemptId));
+  if (!attempt) return fail('Your session has expired. Please sign in again.', 401);
+  const used = Number(attempt.listens?.[index] || 0);
+  if (!attempt.submitted && record.maxListens > 0 && used >= record.maxListens + 1) {
+    return fail('No replays left for this sentence.', 403);
+  }
+  // A re-recording invalidates the local copy before consuming an allowance.
+  // head() verifies its version without downloading the recording again.
+  const object = await env.ASSIGN_BUCKET.head(audioKey(code, index));
+  if (!object) return fail('That sentence has no audio yet.', 404);
+  if (!attempt.audioSecret || !body.version || body.version !== object.etag) {
+    return fail('This recording has changed. Please download it again.', 409);
+  }
+  const key = await audioClipKey(attempt, index, object.etag);
+  if (!attempt.submitted) {
+    attempt.listens = { ...attempt.listens, [index]: used + 1 };
+    await saveAttempt(env, attempt);
+  }
+  return json({
+    key: encodeAudioKey(key),
+    listens: attempt.listens?.[index] || 0,
+    listensLeft: !attempt.submitted && record.maxListens > 0
+      ? Math.max(0, record.maxListens + 1 - (used + 1)) : null,
+  }, 200, { 'Cache-Control': 'no-store' });
 }
 
 async function serveAudio(env, code, indexRaw, attemptId) {
@@ -1411,6 +1481,15 @@ async function route(request, env) {
     if (method === 'GET' && action === 'audio') {
       const attemptId = sanitizeAttemptId(url.searchParams.get('attemptId'));
       return retryingOnConflict(() => serveAudio(env, code, segments[4], attemptId));
+    }
+
+    if (method === 'GET' && action === 'audio-cache') {
+      const attemptId = sanitizeAttemptId(url.searchParams.get('attemptId'));
+      return retryingOnConflict(() => preloadAudio(env, code, segments[4], attemptId));
+    }
+    if (method === 'POST' && action === 'audio-play') {
+      const body = await readJsonBody(request);
+      return retryingOnConflict(() => authorizeAudio(env, code, segments[4], body));
     }
 
     if (method === 'GET' && action === 'results') {

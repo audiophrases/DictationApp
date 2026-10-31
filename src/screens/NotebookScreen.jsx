@@ -4,7 +4,7 @@ import { SPEEDS } from '../lib/options';
 
 // Assignments provide `onRateChange` only when the teacher allows students
 // to slow the recording. Practice can record again at another voice speed.
-export default function NotebookScreen({ heading = 'Notebook dictation', unit = 'segment', count, index, onMove, onRepeat, onFinish, isSpeaking, loading = false, replaysLeft, error, rate, onRateChange }) {
+export default function NotebookScreen({ heading = 'Notebook dictation', unit = 'segment', count, index, onMove, onRepeat, onFinish, isSpeaking, isLoading = false, loading = false, replaysLeft, error, rate, onRateChange }) {
   const canReplay = replaysLeft === null || replaysLeft > 0;
   useEffect(() => {
     const onKey = (event) => {
@@ -35,9 +35,10 @@ export default function NotebookScreen({ heading = 'Notebook dictation', unit = 
       <p className="field-hint">Sentence endings are spoken aloud: for example, “period” means write a full stop, not the word “period”.</p>
       <p aria-live="polite">{loading
         ? <><Loader2 size={16} className="spin" style={{ verticalAlign: 'middle' }} /> Recording at this speed…</>
-        : isSpeaking ? `Playing ${unit}…` : `${unit === 'segment' ? 'Segment' : 'Sentence'} ${index + 1} ready`}</p>
+        : isLoading ? <><Loader2 size={16} className="spin" style={{ verticalAlign: 'middle' }} /> Loading audio…</>
+          : isSpeaking ? `Playing ${unit}…` : `${unit === 'segment' ? 'Segment' : 'Sentence'} ${index + 1} ready`}</p>
       {error && <p className="fetch-error" role="alert">{error}</p>}
-      <button className="btn-primary" onClick={onRepeat} disabled={!canReplay}><Volume2 size={20} /> Repeat {unit} <kbd>Space</kbd></button>
+      <button className="btn-primary" onClick={onRepeat} disabled={!canReplay || isLoading}><Volume2 size={20} /> Repeat {unit} <kbd>Space</kbd></button>
       {replaysLeft !== null && <p className="field-hint">{replaysLeft} plays remaining for this {unit}</p>}
       {onRateChange && (
         <label className="notebook-speed">

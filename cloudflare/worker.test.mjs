@@ -8,6 +8,7 @@
 import worker from './worker.js';
 import { createHash } from 'node:crypto';
 import { notebookPlan } from '../src/lib/notebook.js';
+import { decryptAudio } from '../src/lib/audioCipher.js';
 
 function makeBucket() {
   const objects = new Map();
@@ -42,6 +43,7 @@ function makeBucket() {
       return {
         key,
         etag: o.etag,
+        size: o.bytes.byteLength,
         body,
         customMetadata: o.customMetadata,
         httpMetadata: o.httpMetadata,
@@ -49,7 +51,8 @@ function makeBucket() {
       };
     },
     async head(key) {
-      return objects.has(key) ? { key } : null;
+      const object = objects.get(key);
+      return object ? { key, etag: object.etag, size: object.bytes.byteLength } : null;
     },
     async delete(keys) {
       for (const k of Array.isArray(keys) ? keys : [keys]) objects.delete(k);
@@ -817,6 +820,13 @@ const nbId = nbStart.payload.attemptId;
 check('notebook start withholds the correction passage', nbStart.payload.meta?.mode === 'notebook' && !JSON.stringify(nbStart.payload).includes('village'));
 const nbAudio = await call(`/api/assignments/${nbCode}/audio/0?attemptId=${nbId}`);
 check('notebook WAV segments retain the right playback type', nbAudio.status === 200 && nbAudio.headers.get('Content-Type') === 'audio/wav');
+const nbPreload = await call(`/api/assignments/${nbCode}/audio-cache/0?attemptId=${nbId}`);
+const nbUnlock = await call(`/api/assignments/${nbCode}/audio-play/0`, {
+  method: 'POST', body: { attemptId: nbId, version: nbPreload.headers.get('X-Audio-Version') },
+});
+const nbLocal = await decryptAudio(nbPreload.payload, nbUnlock.payload.key, nbPreload.headers.get('X-Audio-Type'));
+check('cached notebook segments preserve WAV bytes and playback type', nbLocal.type === 'audio/wav'
+  && Buffer.from(await nbLocal.arrayBuffer()).equals(new Uint8Array([82, 73, 70, 70])));
 const nbAnswer = await call(`/api/assignments/${nbCode}/answer`, { method: 'POST', body: { attemptId: nbId, index: 0, text: '' } });
 check('notebook progress never returns sentence feedback', nbAnswer.status === 200 && !nbAnswer.payload.feedback);
 const nbSubmit = await call(`/api/assignments/${nbCode}/submit`, { method: 'POST', body: { attemptId: nbId, answers: [] } });
@@ -1000,6 +1010,88 @@ const archivedReturn = await call(`/api/assignments/${code}/start`, {
 });
 check('but still shows a returning student their result', archivedReturn.status === 200
   && archivedReturn.payload.submitted && archivedReturn.payload.canStartNew === false);
+
+// Background downloads must never use listens or release plaintext/key data.
+const cacheAssignment = await call('/api/teacher/assignments/create', {
+  method: 'POST', body: {
+    password: PASSWORD, title: 'Cached playback', text: 'First recording. Second recording. Third recording.',
+    attemptsLimit: 0, maxListens: 1, feedbackMode: 'end', lang: 'en-US', rate: 1,
+  },
+});
+const cacheCode = cacheAssignment.payload.code;
+const recording = (index) => new Uint8Array([0xff, 0xfb, index, 25, 99]);
+for (let index = 0; index < 3; index += 1) {
+  await call(`/api/teacher/assignments/${cacheCode}/audio/${index}`, {
+    method: 'PUT', headers: { 'Content-Type': 'audio/mpeg', 'X-Teacher-Password': PASSWORD }, raw: recording(index),
+  });
+}
+await call(`/api/teacher/assignments/${cacheCode}/publish`, { method: 'POST', body: { password: PASSWORD } });
+const cacheStart = await call(`/api/assignments/${cacheCode}/start`, { method: 'POST', body: { studentToken: STUDENT_TOKEN } });
+const cacheId = cacheStart.payload.attemptId;
+check('new worker advertises encrypted preloading', cacheStart.payload.meta.audioPreload === 'aes-gcm-v1');
+check('attempt audio secret never reaches the student', !JSON.stringify(cacheStart.payload).includes('audioSecret'));
+const preloadPath = (index, id = cacheId) => `/api/assignments/${cacheCode}/audio-cache/${index}?attemptId=${id}`;
+const authorize = (index, version, id = cacheId) => call(`/api/assignments/${cacheCode}/audio-play/${index}`, {
+  method: 'POST', body: { attemptId: id, version },
+});
+const cacheState = () => call(`/api/assignments/${cacheCode}/start`, { method: 'POST', body: { studentToken: STUDENT_TOKEN } });
+// Simulate an attempt created before preloading existed.
+const cacheAttemptKey = `assign/${cacheCode}/attempts/usr_${profile.email}/${cacheId}.json`;
+const oldAttempt = await (await env.ASSIGN_BUCKET.get(cacheAttemptKey)).json();
+delete oldAttempt.audioSecret;
+await env.ASSIGN_BUCKET.put(cacheAttemptKey, JSON.stringify(oldAttempt), { customMetadata: { sub: '0' } });
+const [download0, download1, download2] = await Promise.all([0, 1, 2].map((index) => call(preloadPath(index))));
+check('older attempts support concurrent encrypted preloads', [download0, download1, download2].every((res) => res.status === 200));
+check('preloaded bytes are encrypted and not browser-cached',
+  download0.payload.byteLength === recording(0).byteLength + 28
+    && download0.headers.get('Cache-Control') === 'no-store'
+    && download0.headers.get('Content-Type') === 'application/octet-stream');
+check('all preloads leave actual listen counts empty', Object.keys((await cacheState()).payload.listens).length === 0);
+check('preloads need a real attempt', (await call(preloadPath(0, 'at_bogus'))).status === 401);
+check('cached plays need a real attempt', (await authorize(0, download0.headers.get('X-Audio-Version'), 'at_bogus')).status === 401);
+check('preloads reject invalid segment numbers', (await call(preloadPath(3))).status === 404);
+check('an unversioned unlock is refused without using a play', (await authorize(0, '')).status === 409
+  && Object.keys((await cacheState()).payload.listens).length === 0);
+const unlock0 = await authorize(0, download0.headers.get('X-Audio-Version'));
+const local0 = await decryptAudio(download0.payload, unlock0.payload.key, download0.headers.get('X-Audio-Type'));
+check('a cached play unlocks exactly the original recording',
+  unlock0.status === 200 && Buffer.from(await local0.arrayBuffer()).equals(recording(0)) && local0.type === 'audio/mpeg');
+check('cached play returns authoritative counts without caching its key',
+  unlock0.payload.listens === 1 && unlock0.payload.listensLeft === 1 && unlock0.headers.get('Cache-Control') === 'no-store');
+let isolatedKey = false;
+try { await decryptAudio(download1.payload, unlock0.payload.key, 'audio/mpeg'); } catch { isolatedKey = true; }
+check('one segment key cannot unlock another segment', isolatedKey);
+await authorize(0, download0.headers.get('X-Audio-Version'));
+const exhaustedUnlock = await authorize(0, download0.headers.get('X-Audio-Version'));
+check('cached playback enforces the same replay limit', exhaustedUnlock.status === 403 && !exhaustedUnlock.payload.key);
+
+await authorize(1, download1.headers.get('X-Audio-Version'));
+const [cachedRace, directRace] = await raceAttemptWrite(cacheCode,
+  () => authorize(1, download1.headers.get('X-Audio-Version')),
+  () => call(`/api/assignments/${cacheCode}/audio/1?attemptId=${cacheId}`));
+check('cached and streamed plays cannot both use the final replay', cachedRace.status === 403 && directRace.status === 200);
+
+const replacement = new Uint8Array([0xff, 0xfb, 88, 77, 66]);
+await call(`/api/teacher/assignments/${cacheCode}/audio/2`, {
+  method: 'PUT', headers: { 'Content-Type': 'audio/mpeg', 'X-Teacher-Password': PASSWORD }, raw: replacement,
+});
+const stale = await authorize(2, download2.headers.get('X-Audio-Version'));
+check('a replaced recording rejects the old cache without consuming a play', stale.status === 409 && !(await cacheState()).payload.listens[2]);
+const freshDownload = await call(preloadPath(2));
+const freshUnlock = await authorize(2, freshDownload.headers.get('X-Audio-Version'));
+const freshLocal = await decryptAudio(freshDownload.payload, freshUnlock.payload.key, 'audio/mpeg');
+check('the replacement recording can be cached and played', Buffer.from(await freshLocal.arrayBuffer()).equals(replacement));
+const cachedTeacher = await call('/api/teacher/assignments/get', { method: 'POST', body: { password: PASSWORD, code: cacheCode } });
+check('teacher counts actual plays, never background downloads', cachedTeacher.payload.attempts[0].plays === 5);
+await call(`/api/assignments/${cacheCode}/submit`, { method: 'POST', body: { attemptId: cacheId, answers: [] } });
+const reviewUnlock = await authorize(0, download0.headers.get('X-Audio-Version'));
+check('cached review is free after submission', reviewUnlock.status === 200 && reviewUnlock.payload.listens === 2 && reviewUnlock.payload.listensLeft === null);
+const newCacheAttempt = await call(`/api/assignments/${cacheCode}/start`, { method: 'POST', body: { studentToken: STUDENT_TOKEN, fresh: true } });
+const otherDownload = await call(preloadPath(0, newCacheAttempt.payload.attemptId));
+let attemptIsolated = false;
+try { await decryptAudio(otherDownload.payload, unlock0.payload.key, 'audio/mpeg'); } catch { attemptIsolated = true; }
+check('one attempt key cannot unlock another attempt cache', attemptIsolated);
+await call('/api/teacher/assignments/delete', { method: 'POST', body: { password: PASSWORD, code: cacheCode } });
 
 const del = await call('/api/teacher/assignments/delete', {
   method: 'POST', body: { password: PASSWORD, code },

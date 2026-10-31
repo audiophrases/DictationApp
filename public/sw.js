@@ -17,8 +17,8 @@
 // browser (immutable) and prefetched by useSpeech, and mirroring it here would
 // only fill up the student's storage quota. Since the app moved to GitHub
 // Pages that audio is cross-origin anyway, and cross-origin requests return
-// early below — including everything the assignment worker serves, which must
-// never be cached because replays are counted server-side.
+// early below — including the assignment worker. Assignment preloads use a
+// separate, page-local encrypted cache; playback authorization stays online.
 const VERSION = 'v3';
 const SHELL_CACHE = `dictation-shell-${VERSION}`;
 const ASSET_CACHE = `dictation-assets-${VERSION}`;

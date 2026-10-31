@@ -58,6 +58,7 @@ function AssignmentApp({ code }) {
     maxListens: phase === 'practice' ? 0 : meta?.maxListens ?? 0,
     initialListens,
     playbackRate: meta?.allowSlowdown ? playbackRate : 1,
+    preload: meta?.audioPreload === 'aes-gcm-v1',
   });
   const { play, prefetch, stop } = audio;
 
@@ -184,11 +185,11 @@ function AssignmentApp({ code }) {
     play(0, { replay: true });
   }, [phase, play]);
 
-  // One sentence ahead, and only when replays are unlimited — see the note in
-  // useAssignmentAudio about why prefetching is metered.
+  // Download the remaining recordings while the student listens and writes.
+  // Preloads are encrypted and never count as plays, including notebook mode.
   useEffect(() => {
-    if (phase !== 'dictating' || !meta || meta.mode === 'notebook') return;
-    if (currentIndex + 1 < meta.sentenceCount) prefetch(currentIndex + 1);
+    if (!['dictating', 'practice'].includes(phase) || !meta) return;
+    prefetch(meta.sentenceCount, currentIndex);
   }, [phase, meta, currentIndex, prefetch]);
 
   // Leaving the page mid-dictation is recorded for the teacher, same as in free
@@ -464,7 +465,7 @@ function AssignmentApp({ code }) {
       }}
       onRepeat={() => play(currentIndex, { replay: true })}
       onFinish={() => (practising ? (stop(), setPhase('done')) : finish([]))}
-      isSpeaking={audio.isSpeaking} replaysLeft={audio.replaysLeftFor(currentIndex)} error={audio.error}
+      isSpeaking={audio.isSpeaking} isLoading={audio.isLoading} replaysLeft={audio.replaysLeftFor(currentIndex)} error={audio.error}
       rate={playbackRate} onRateChange={meta.allowSlowdown ? setPlaybackRate : undefined} />;
   }
 
@@ -481,6 +482,7 @@ function AssignmentApp({ code }) {
       onFinishEarly={practising ? () => { stop(); setPhase(practiceGrades.some(Boolean) ? 'practiced' : 'done'); } : finishEarly}
       replaysLeft={audio.replaysLeftFor(currentIndex)}
       isSpeaking={audio.isSpeaking}
+      isLoading={audio.isLoading}
       warnings={warnings}
       rate={playbackRate}
       onRateChange={meta.allowSlowdown ? setPlaybackRate : undefined}

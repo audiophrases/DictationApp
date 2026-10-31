@@ -1,133 +1,173 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { sentenceAudioUrl } from './lib/assignmentApi';
+import { authorizeCachedAudio, cachedAudioUrl, sentenceAudioUrl } from './lib/assignmentApi';
+import { AssignmentAudioCache } from './lib/assignmentAudioCache';
+import { decryptAudio } from './lib/audioCipher';
 
 /**
- * Playback for an assignment, where the student's browser knows sentence
- * numbers but never the words. Each request asks the worker for "sentence 3"
- * and gets back an MP3.
+ * Download encrypted recordings in the background. Every actual play still
+ * asks the worker to count the listen before unlocking the local clip.
  *
- * Two details matter here:
- *
- * 1. play() is synchronous, exactly like useSpeech.speak — the URL is handed
- *    to an Audio element inside the click that asked for it. Awaiting a fetch
- *    first would move play() outside the user gesture and risk tripping
- *    autoplay blocking.
- * 2. Every request the worker serves counts as one play, so prefetching is only
- *    safe when replays are unlimited. When they are, the prefetched clip is
- *    used for the *first* play only; a replay always goes back to the server,
- *    which keeps the teacher's play count honest either way.
+ * Reuse one audio element. The first clip streams with play() inside the user's
+ * gesture. Once allowed to play, that same element can switch to a local blob
+ * after the small authorization request without losing playback permission.
  */
-export function useAssignmentAudio({ code, attemptId, maxListens, initialListens, playbackRate = 1 }) {
+export function useAssignmentAudio({ code, attemptId, maxListens, initialListens, playbackRate = 1, preload = false }) {
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [listens, setListens] = useState(() => ({ ...(initialListens || {}) }));
   const [error, setError] = useState('');
   const audioRef = useRef(null);
-  const clipsRef = useRef(new Map());
-  const inFlightRef = useRef(new Set());
+  const cacheRef = useRef(null);
+  const unlockedRef = useRef(false);
+  const sequenceRef = useRef(0);
+  const blobRef = useRef(null);
+  const pendingRef = useRef(null);
+  const loadingTimerRef = useRef(null);
 
   useEffect(() => { setListens({ ...(initialListens || {}) }); }, [initialListens]);
 
-  useEffect(() => {
-    const clips = clipsRef.current;
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      for (const url of clips.values()) URL.revokeObjectURL(url);
-      clips.clear();
-    };
+  const stop = useCallback(() => {
+    sequenceRef.current += 1;
+    clearTimeout(loadingTimerRef.current);
+    if (audioRef.current) {
+      audioRef.current.onplaying = null;
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+      audioRef.current.pause();
+    }
+    if (blobRef.current) URL.revokeObjectURL(blobRef.current);
+    blobRef.current = null;
+    pendingRef.current = null;
+    setIsSpeaking(false);
+    setIsLoading(false);
   }, []);
 
-  const unlimited = maxListens === 0;
-
-  const prefetch = useCallback(
-    (index) => {
-      if (!unlimited || index == null || index < 0 || !attemptId) return;
-      const clips = clipsRef.current;
-      if (clips.has(index) || inFlightRef.current.has(index)) return;
-
-      inFlightRef.current.add(index);
-      fetch(sentenceAudioUrl(code, index, attemptId))
-        .then((res) => (res.ok ? res.blob() : null))
-        .then((blob) => {
-          if (!blob || clips.has(index)) return;
-          clips.set(index, URL.createObjectURL(blob));
-          // One sentence ahead is all this ever holds.
-          for (const key of clips.keys()) {
-            if (key < index - 1) {
-              URL.revokeObjectURL(clips.get(key));
-              clips.delete(key);
-            }
-          }
-        })
-        .catch(() => {
-          // Best effort; play() will request it for real.
-        })
-        .finally(() => inFlightRef.current.delete(index));
-    },
-    [code, attemptId, unlimited]
-  );
-
-  const play = useCallback(
-    (index, { replay = false } = {}) => {
-      if (audioRef.current) audioRef.current.pause();
-      setError('');
-      setIsSpeaking(false);
-
-      const clips = clipsRef.current;
-      let url;
-      if (!replay && clips.has(index)) {
-        // Already paid for by the prefetch, so this play is not a new request.
-        url = clips.get(index);
-      } else {
-        url = sentenceAudioUrl(code, index, attemptId);
-        setListens((prev) => ({ ...prev, [index]: (prev[index] || 0) + 1 }));
+  useEffect(() => {
+    const cache = preload && attemptId && globalThis.crypto?.subtle
+      ? new AssignmentAudioCache({ urlFor: (index) => cachedAudioUrl(code, index, attemptId) }) : null;
+    cacheRef.current = cache;
+    return () => {
+      cache?.dispose();
+      cacheRef.current = null;
+      stop();
+      if (audioRef.current) {
+        audioRef.current.removeAttribute('src');
+        audioRef.current.load();
       }
+      audioRef.current = null;
+      unlockedRef.current = false;
+    };
+  }, [code, attemptId, preload, stop]);
 
-      const audio = new Audio(url);
-      // Slowing a stored recording does not request another clip or reveal its
-      // text. Apply it to direct URLs and prefetched blobs alike, keeping pitch.
+  const prefetch = useCallback((count, currentIndex) => {
+    cacheRef.current?.prefetch(count, currentIndex);
+  }, []);
+
+  const play = useCallback((index) => {
+    // Repeated clicks while loading must not spend another listen.
+    if (pendingRef.current?.index === index && pendingRef.current.loading) return;
+    const retry = pendingRef.current?.index === index && pendingRef.current.blocked;
+    if (!retry) stop();
+    const sequence = ++sequenceRef.current;
+    const current = () => sequenceRef.current === sequence;
+    const audio = audioRef.current || (audioRef.current = new Audio());
+    setError('');
+    setIsLoading(true);
+    pendingRef.current = { index, loading: true };
+
+    const finish = () => {
+      if (!current()) return;
+      clearTimeout(loadingTimerRef.current);
+      setIsSpeaking(false);
+      setIsLoading(false);
+    };
+    const failed = (err) => {
+      if (!current()) return;
+      // Retry an already authorized clip after autoplay was blocked, without
+      // spending another listen. Keep the source on this same media element.
+      pendingRef.current = err?.name === 'NotAllowedError' ? { index, blocked: true } : null;
+      setError(err?.name === 'NotAllowedError'
+        ? 'Press Listen Again to start the audio.'
+        : err?.message || "That recording wouldn't play. Try Listen Again.");
+      finish();
+    };
+    audio.onplaying = () => {
+      if (!current()) return;
+      clearTimeout(loadingTimerRef.current);
+      pendingRef.current = null;
+      setIsLoading(false);
+      setIsSpeaking(true);
+    };
+    audio.onended = finish;
+    audio.onerror = () => failed(new Error("That recording wouldn't play. Try Listen Again."));
+    loadingTimerRef.current = setTimeout(() => {
+      if (!current()) return;
+      failed(new Error('Audio took too long to load. Check your connection and try again.'));
+      sequenceRef.current += 1;
+      audio.pause();
+    }, 20000);
+    const start = (url) => {
+      if (!current()) return;
+      audio.defaultPlaybackRate = playbackRate;
+      if (url) audio.src = url;
       audio.playbackRate = playbackRate;
       audio.preservesPitch = true;
-      audioRef.current = audio;
+      audio.play().then(() => { if (current()) unlockedRef.current = true; }).catch(failed);
+    };
+    const stream = () => {
+      if (!current()) return;
+      setListens((prev) => ({ ...prev, [index]: (prev[index] || 0) + 1 }));
+      start(sentenceAudioUrl(code, index, attemptId));
+    };
 
-      const finish = () => {
-        if (audioRef.current === audio) setIsSpeaking(false);
-      };
-      audio.onplaying = () => {
-        if (audioRef.current === audio) setIsSpeaking(true);
-      };
-      audio.onended = finish;
-      audio.onerror = () => {
-        if (audioRef.current !== audio) return;
-        setError("That sentence wouldn't play. Try Listen Again.");
-        finish();
-      };
-      audio.play().catch(() => {
-        if (audioRef.current !== audio) return;
-        setError("That sentence wouldn't play. Try Listen Again.");
-        finish();
-      });
-    },
-    [code, attemptId, playbackRate]
-  );
-
-  const stop = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
+    if (retry) {
+      start();
+      return;
     }
-    setIsSpeaking(false);
-  }, []);
+    const cache = cacheRef.current;
+    const clip = unlockedRef.current && cache?.get(index);
+    if (!clip) {
+      stream();
+      return;
+    }
+    authorizeCachedAudio(code, index, attemptId, clip.version).then(async (authorization) => {
+      if (cacheRef.current !== cache) return;
+      setListens((prev) => ({ ...prev, [index]: authorization.listens }));
+      if (!current()) return;
+      // Authorization counted a play, so a decryption failure must not fall
+      // through to another metered download. Evict and report a manual retry.
+      let blob;
+      try {
+        blob = await decryptAudio(clip.bytes, authorization.key, clip.type);
+      } catch {
+        cache.delete(index);
+        throw new Error("That recording wouldn't load. Try Listen Again.");
+      }
+      if (!current()) return;
+      blobRef.current = URL.createObjectURL(blob);
+      start(blobRef.current);
+    }, (err) => {
+      if (cacheRef.current === cache && err.status === 403) {
+        setListens((prev) => ({ ...prev, [index]: maxListens + 1 }));
+      }
+      if (!current()) return;
+      // These failures consume no listen, so streaming the replacement is safe.
+      if (err.status === 409 || err.status === 404) {
+        cache.delete(index);
+        stream();
+      } else {
+        failed(err);
+      }
+    }).catch(failed);
+  }, [code, attemptId, playbackRate, maxListens, stop]);
 
-  // Allowance is maxListens + 1: hearing a sentence for the first time is not
-  // a replay. The worker enforces the same sum — this only keeps the button and
-  // the counter on screen truthful.
   const replaysLeftFor = useCallback(
-    (index) => (unlimited ? null : Math.max(0, maxListens + 1 - (listens[index] || 0))),
-    [unlimited, maxListens, listens]
+    (index) => (maxListens === 0 ? null : Math.max(
+      pendingRef.current?.index === index && pendingRef.current.blocked ? 1 : 0,
+      maxListens + 1 - (listens[index] || 0)
+    )),
+    [maxListens, listens]
   );
 
-  return { play, prefetch, stop, isSpeaking, listens, replaysLeftFor, error };
+  return { play, prefetch, stop, isSpeaking, isLoading, listens, replaysLeftFor, error };
 }

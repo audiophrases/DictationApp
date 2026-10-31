@@ -142,6 +142,18 @@ export function sentenceAudioUrl(code, index, attemptId) {
   );
 }
 
+export function cachedAudioUrl(code, index, attemptId) {
+  return workerUrl(
+    `/api/assignments/${code}/audio-cache/${index}?attemptId=${encodeURIComponent(attemptId)}`
+  );
+}
+
+export function authorizeCachedAudio(code, index, attemptId, version) {
+  return workerApi(`/api/assignments/${code}/audio-play/${index}`, {
+    method: 'POST', body: { attemptId, version },
+  });
+}
+
 export function saveAnswer(code, attemptId, index, text) {
   return workerApi(`/api/assignments/${code}/answer`, {
     method: 'POST',

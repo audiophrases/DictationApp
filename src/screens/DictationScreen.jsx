@@ -17,6 +17,7 @@ function DictationScreen({
   onFinishEarly,
   replaysLeft, // null = unlimited
   isSpeaking,
+  isLoading = false,
   warnings,
   rate,
   onRateChange, // assignments provide this only when the teacher allows slowing playback
@@ -80,11 +81,11 @@ function DictationScreen({
           <button
             className="btn-primary"
             onClick={onRepeat}
-            disabled={!canReplay}
+            disabled={!canReplay || isLoading}
             title={canReplay ? 'Listen Again (Alt + R)' : `No replays left for this ${unit}`}
           >
-            <Volume2 size={20} className={isSpeaking ? 'speaking-pulse' : ''} />
-            {isSpeaking ? 'Speaking…' : 'Listen Again'}
+            {isLoading ? <Loader2 size={20} className="spin" /> : <Volume2 size={20} className={isSpeaking ? 'speaking-pulse' : ''} />}
+            {isLoading ? 'Loading audio…' : isSpeaking ? 'Speaking…' : 'Listen Again'}
             <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>(Alt+R)</span>
           </button>
           {replaysLeft !== null && (

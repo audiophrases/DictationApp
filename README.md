@@ -215,6 +215,18 @@ device for up to 30 days; **Not you? Switch account** signs out on shared device
 Each app origin stores its own session, so signing into PinPlay on another
 website does not automatically sign this website in.
 
+Assignment recordings are generated **once by the teacher**, then shared by
+every student. After starting, typed and notebook assignments download the
+segments in the background, two at a time with upcoming segments first.
+Encrypted clips stay in a temporary, page-local cache (up to 64 MB); closing or
+reloading the page clears it. A cached play only needs a small authorization
+response instead of another audio download. Downloads never use replays or
+inflate the teacher's play counts, and each play still checks the server's
+limit. Playback and answer submission still need a connection. Cache misses
+stream normally, and replacing a recording invalidates its cached version.
+Deploy both the frontend and assignment Worker to enable this; existing
+assignments and recordings do not need to be recreated.
+
 Two pages rather than one app with a route, because a static host has no
 rewrites and because they share almost nothing: a Chromebook opening the
 student app downloads none of the dashboard, the builder, or anything else

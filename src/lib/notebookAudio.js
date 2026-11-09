@@ -73,3 +73,13 @@ export async function prepareNotebook(text, settings, onProgress) {
     return clips;
   } finally { await context.close(); }
 }
+
+// Human takes have no word metadata. Keep the grammatical phrase plan and
+// require an explicit listening review of estimated cuts before publishing.
+export async function prepareHumanSentenceRecording(part, buffer, options) {
+  const label = options.punctuation ? sentenceEndCue(part.sentence, options.lang) : '';
+  const cue = label ? await punctuationAudio(label, { ...options, cueCache: options.cueCache || new Map() }) : null;
+  return { sentence: part.sentence, segments: part.segments.slice(), buffer,
+    cuts: estimatedCuts(part.segments, buffer.duration), cue, boundaries: [], source: 'human',
+    warning: 'Human recording: check that the words match and adjust the estimated phrase cuts by ear.' };
+}

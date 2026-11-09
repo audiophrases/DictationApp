@@ -33,7 +33,7 @@ test('expanded numbers, incomplete timing and invalid ranges require review', ()
 
 const bundled = await build({ entryPoints: ['src/lib/notebookAudio.js'], bundle: true, write: false,
   platform: 'node', format: 'esm', define: { 'import.meta.env': '{}' }, logLevel: 'silent' });
-const { prepareSentenceRecording, recordingClips } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`);
+const { prepareSentenceRecording, prepareHumanSentenceRecording, recordingClips } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`);
 const buffer = { sampleRate: 100, duration: 1.5, length: 150, getChannelData: () => Float32Array.from({ length: 150 }, () => 0.2) };
 
 test('synthesis receives the full sentence once; manual cuts reuse its audio', async (t) => {
@@ -162,4 +162,17 @@ test('custom reviewed segmentation uploads without reverting to automatic phrase
     text: 'A different passage.', lang: 'en-US', rate: 1, prepared,
   }));
   assert.equal(calls.length, 2);
+});
+
+
+test('human takes keep their audio and phrase plan without calling TTS', async (t) => {
+  t.mock.method(globalThis, 'fetch', () => { throw new Error('Unexpected TTS call'); });
+  const part = { sentence: 'Moving abroad helped him.', segments: ['Moving abroad', 'helped him.'] };
+  const result = await prepareHumanSentenceRecording(part, buffer, { punctuation: false });
+  assert.equal(result.buffer, buffer);
+  assert.deepEqual(result.segments, part.segments);
+  assert.equal(result.source, 'human');
+  assert.ok(result.warning);
+  assert.equal(result.cue, null);
+  assert.equal(recordingClips(result).length, 2);
 });

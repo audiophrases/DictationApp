@@ -26,6 +26,31 @@ the expected answers, so saving requires confirmation that student attempts,
 scores and released corrections will be reset. Saved audio keeps the cuts;
 the editable waveform and split controls last for the current studio session.
 
+Human voices use **Choose voice and review splits > Human voices · recording
+sessions**, backed by the same PinPlay service and volunteer recording page as
+Listening Studio. Enter the PinPlay teacher password (kept in memory), create a
+session with one complete sentence per line and an actor name for each, then
+share the whole-passage or actor-specific recorder link. Actors record on their
+own phone/computer; no installation or login is needed. Dictation sessions
+turn off volunteer text editing so the answer key stays aligned.
+
+Use **Refresh takes**, preview each recording, adjust its automatic silence
+trim, then **Approve take** or **Request redo**. Once all takes are approved,
+open the splitting studio: the original phrase logic is retained, but human
+audio has estimated timing, so each sentence requires a listening check. Move
+words or adjust cut times as usual. Human audio keeps the actor's pace; notebook
+punctuation cues can optionally be added with TTS. Takes are copied into the
+assignment on save; subsequent PinPlay retakes do not change a published
+assignment automatically.
+
+Sessions persist in PinPlay and can be reopened later with **Load existing
+PinPlay sessions**. With an empty passage, selecting a session imports its text;
+with a passage already entered, it must match sentence for sentence. Existing
+sessions need one sentence per line. Recorders and reviewers share PinPlay's
+approved/redo state; only share recorder links with intended voice actors,
+since those links reveal the script. The same workflow is available under
+**Edit > Recordings > Open splitting studio**.
+
 Teachers can enable **Allow students to slow playback** when creating an
 assignment. Students then get a **Normal / Relaxed / Slow** dropdown in either
 typing or notebook mode. Normal uses the teacher's recorded pace; the slower

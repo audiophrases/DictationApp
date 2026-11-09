@@ -11,7 +11,7 @@ import {
 import { recordSentences, rerecordSegments, uploadPreparedClips } from '../../lib/buildAssignment';
 import { notebookPlan } from '../../lib/notebook';
 import { deliveryFor, dictationUnit } from '../../lib/delivery';
-import AudioSplitStudio from '../../components/AudioSplitStudio';
+import AudioSplitStudio from '../../components/DictationAudioWorkflow';
 import { segmentGroups, sameSegmentPlan } from '../../lib/notebookShared';
 import MarkingRules from '../../components/MarkingRules';
 
@@ -240,7 +240,7 @@ function RecordingsSection({ code, data, onSaved, requireServer }) {
     }
   }
 
-  if (studio) return <AudioSplitStudio plan={studioPlan} lang={record.settings.lang} rate={rate} mode={record.mode}
+  if (studio) return <AudioSplitStudio title={record.title} requireServer={requireServer} plan={studioPlan} lang={record.settings.lang} rate={rate} mode={record.mode}
     segmentChangeNotice="I understand that moving words changes the expected answers and resets student attempts, scores and released corrections for this assignment."
     acceptLabel="Save reviewed recordings" onCancel={() => { setStudio(false); savedStudioSegments.current = null; onSaved(); }}
     onAccept={async (prepared) => {
@@ -274,7 +274,7 @@ function RecordingsSection({ code, data, onSaved, requireServer }) {
             {SPEEDS.map((s) => <option key={s.value} value={s.value}>{s.name}</option>)}
           </select>
         </label>
-        <button className="btn-primary" onClick={() => { player.current?.pause(); requireServer?.(); setStudio(true); }} disabled={busy !== null}>
+        <button className="btn-primary" onClick={() => { player.current?.pause(); setStudio(true); }} disabled={busy !== null}>
           {busy === 'all' ? <Loader2 size={18} className="spin" /> : <Mic size={18} />} Open splitting studio
         </button>
         {busy === 'all' && <span className="field-hint" style={{ margin: 0 }}>{progress}</span>}
@@ -289,7 +289,7 @@ function RecordingsSection({ code, data, onSaved, requireServer }) {
               {playing === i ? <Square size={15} /> : <Play size={15} />}
             </button>
             <button className="btn-ghost btn-small" onClick={() => rerecord([i])} disabled={busy !== null}>
-              {busy === i ? <Loader2 size={14} className="spin" /> : done.has(i) ? <Check size={14} /> : <RefreshCw size={14} />} Re-record
+              {busy === i ? <Loader2 size={14} className="spin" /> : done.has(i) ? <Check size={14} /> : <RefreshCw size={14} />} Re-record with TTS
             </button>
           </li>
         ))}

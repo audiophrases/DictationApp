@@ -5,7 +5,7 @@ import { DEFAULT_GRADING_OPTIONS } from '../../lib/grading';
 import { createAssignment, publishAssignment } from '../../lib/assignmentApi';
 import { recordSentences } from '../../lib/buildAssignment';
 import { studentLink } from '../../lib/appLinks';
-import AudioSplitStudio from '../../components/AudioSplitStudio';
+import AudioSplitStudio from '../../components/DictationAudioWorkflow';
 import MarkingRules from '../../components/MarkingRules';
 import { notebookPlan } from '../../lib/notebook';
 import { deliveryFor, dictationUnit } from '../../lib/delivery';
@@ -64,7 +64,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
     setError('');
     // The teacher's browser does the synthesis, so it is the teacher who waits
     // for a sleeping voice server — never a student.
-    requireServer?.();
+    if (!preparedAudio.current) requireServer?.();
     const stragglers = await recordSentences(assignmentCode, list, {
       lang,
       rate,
@@ -133,7 +133,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
     );
   }
 
-  if (phase === 'studio') return <AudioSplitStudio plan={plan} lang={lang} rate={rate} mode={mode}
+  if (phase === 'studio') return <AudioSplitStudio onSessionPassage={setPassage} title={title} requireServer={requireServer} plan={plan} lang={lang} rate={rate} mode={mode}
     onCancel={() => setPhase('form')}
     onAccept={async (prepared) => { preparedAudio.current = prepared; await handleCreate(); }} />;
 
@@ -177,7 +177,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
           <Mic size={36} className="fetch-panel-icon" style={{ margin: '0 auto' }} />
           <h2 style={{ fontSize: '1.4rem', marginTop: '0.5rem' }}>Recording the {unit}s</h2>
           <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-            Each {unit} is recorded and stored now. {mode === 'notebook' && 'A spoken punctuation cue is added at each sentence ending. '}
+            Each {unit} is recorded and stored now.
             Your students never wait for a voice server. The first recording can take a moment while it wakes up.
           </p>
 
@@ -355,10 +355,9 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
             <button
               className="btn-primary"
               style={{ flex: 1 }}
-              onClick={() => { requireServer?.(); setPhase('studio'); }}
-              disabled={previewCount === 0}
+              onClick={() => setPhase('studio')}
             >
-              <Mic size={18} /> Generate audio and review splits
+              <Mic size={18} /> Choose voice and review splits
             </button>
           </div>
         </div>

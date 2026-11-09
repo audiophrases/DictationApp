@@ -26,7 +26,7 @@ function Waveform({ buffer, cuts }) {
   </svg>;
 }
 
-export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onAccept, acceptLabel = 'Use audio and create assignment', segmentChangeNotice = '' }) {
+export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onAccept, acceptLabel = 'Use audio and create assignment', segmentChangeNotice = '', initialRecordings = null }) {
   const [recordings, setRecordings] = useState([]);
   const [index, setIndex] = useState(0);
   const [error, setError] = useState('');
@@ -41,6 +41,14 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
   const changedSegments = recordings.some((r) => !sameSegmentPlan(r.originalSegments, r.segments));
 
   useEffect(() => {
+    if (initialRecordings) {
+      setRecordings(initialRecordings.map((result) => ({ ...result,
+        originalCuts: result.cuts.slice(), originalSegments: result.segments.slice(),
+        originalWarning: result.warning, checked: !result.warning,
+      })));
+      setIndex(0); setLoading(false); setError('');
+      return;
+    }
     const controller = new AbortController();
     const context = new AudioContext({ sampleRate: 24000 });
     const cueCache = new Map();
@@ -62,7 +70,7 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
       }
     })();
     return () => { controller.abort(); };
-  }, [plan, lang, rate, mode, attempt]);
+  }, [plan, lang, rate, mode, attempt, initialRecordings]);
 
   useEffect(() => {
     if (!preview) { setUrl(''); return; }
@@ -136,7 +144,7 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
         <label><input type="checkbox" checked={recording.checked} disabled={saving} onChange={(e) => update({ checked: e.target.checked })} /> I listened to every phrase in this sentence and checked the splits.</label>
       </div>}
     </>}
-    <p className="field-hint">Keep this page open until saving finishes. {mode === 'notebook' && 'The last phrase includes the spoken punctuation cue.'}</p>
+    <p className="field-hint">Keep this page open until saving finishes. {recording?.cue && 'The last phrase includes the spoken punctuation cue.'}</p>
     {changedSegments && segmentChangeNotice && <label style={{ display: 'block', margin: '1rem 0' }}>
       <input type="checkbox" checked={confirmedChange} disabled={saving} onChange={(e) => setConfirmedChange(e.target.checked)} /> {segmentChangeNotice}
     </label>}

@@ -8,9 +8,11 @@ import {
   updateAssignmentContent,
   updateAssignmentSettings,
 } from '../../lib/assignmentApi';
-import { recordSentences, rerecordSegments } from '../../lib/buildAssignment';
+import { recordSentences, rerecordSegments, uploadPreparedClips } from '../../lib/buildAssignment';
 import { notebookPlan } from '../../lib/notebook';
 import { deliveryFor, dictationUnit } from '../../lib/delivery';
+import AudioSplitStudio from '../../components/AudioSplitStudio';
+import { segmentGroups } from '../../lib/notebookShared';
 import MarkingRules from '../../components/MarkingRules';
 
 const toDateInput = (ms) => {
@@ -172,6 +174,10 @@ function SettingsSection({ code, data, onSaved }) {
 function RecordingsSection({ code, data, onSaved, requireServer }) {
   const { record, sentences } = data;
   const unit = dictationUnit(record);
+  const [studio, setStudio] = useState(false);
+  const studioPlan = useMemo(() => segmentGroups(sentences).map((group) => ({
+    sentence: group.sentence, segments: sentences.slice(group.start, group.start + group.count),
+  })), [sentences]);
   const [rate, setRate] = useState(record.settings?.rate ?? 1);
   const [busy, setBusy] = useState(null); // null | 'all' | index
   const [progress, setProgress] = useState('');
@@ -233,6 +239,18 @@ function RecordingsSection({ code, data, onSaved, requireServer }) {
     }
   }
 
+  if (studio) return <AudioSplitStudio plan={studioPlan} lang={record.settings.lang} rate={rate} mode={record.mode}
+    acceptLabel="Save reviewed recordings" onCancel={() => setStudio(false)}
+    onAccept={async (prepared) => {
+      const failed = await uploadPreparedClips(code, sentences, prepared);
+      if (failed.length) throw new Error(`Recordings ${failed.map((i) => i + 1).join(', ')} could not be saved. Keep this studio open and retry saving. Other recordings were saved.`);
+      if (rate !== record.settings?.rate) await updateAssignmentSettings(code, { rate });
+      if (record.status === 'draft') await publishAssignment(code);
+      setStudio(false);
+      setDone(new Set(sentences.map((_, i) => i)));
+      onSaved();
+    }} />;
+
   return (
     <section className="edit-section">
       <h2>Recordings</h2>
@@ -244,8 +262,8 @@ function RecordingsSection({ code, data, onSaved, requireServer }) {
             {SPEEDS.map((s) => <option key={s.value} value={s.value}>{s.name}</option>)}
           </select>
         </label>
-        <button className="btn-primary" onClick={() => rerecord(null)} disabled={busy !== null}>
-          {busy === 'all' ? <Loader2 size={18} className="spin" /> : <Mic size={18} />} Re-record all {sentences.length} {unit}s
+        <button className="btn-primary" onClick={() => { player.current?.pause(); requireServer?.(); setStudio(true); }} disabled={busy !== null}>
+          {busy === 'all' ? <Loader2 size={18} className="spin" /> : <Mic size={18} />} Open splitting studio
         </button>
         {busy === 'all' && <span className="field-hint" style={{ margin: 0 }}>{progress}</span>}
       </div>

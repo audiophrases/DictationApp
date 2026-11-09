@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { notebookPlan, segmentSentence, sentenceEndCue } from './notebook.js';
-import { spokenPhrase, validatedNotebookSegments, sameSegmentPlan } from './notebookShared.js';
+import { validatedNotebookSegments, sameSegmentPlan } from './notebookShared.js';
 import { trimTrailingSilence, wavClip } from './notebookWav.js';
 import { deliveryFor, dictationUnit } from './delivery.js';
 
@@ -76,13 +76,6 @@ test('no phrase ends on a word that leans on the next one', () => {
       assert.ok(!leaning.test(segment.split(/\s+/).at(-1).replace(/[^\p{L}]/gu, '')), `ends on a leaning word: "${segment}"`);
     }
   }
-});
-
-test('phrases that continue the sentence are voiced with a continuing comma', () => {
-  assert.equal(spokenPhrase("It's hard to decide", false), "It's hard to decide,");
-  assert.equal(spokenPhrase('I agree with your point,', false), 'I agree with your point,');
-  assert.equal(spokenPhrase('In this case:', false), 'In this case:');
-  assert.equal(spokenPhrase('when both options seem reasonable.', true), 'when both options seem reasonable.');
 });
 
 test('grammar tags do not expand contractions or split names and phrasal verbs', () => {

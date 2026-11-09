@@ -10,7 +10,7 @@
 // student thereafter plays audio straight out of R2 with no TTS call at all.
 import { ttsBase, voiceFailure } from './api';
 import { uploadSentenceAudio } from './assignmentApi';
-import { prepareNotebookSegment, prepareNotebookSentence } from './notebookAudio';
+import { prepareNotebookSentence } from './notebookAudio';
 import { notebookPlan } from './notebook';
 import { deliveryFor } from './delivery';
 import { sameSegmentPlan, segmentGroups } from './notebookShared';
@@ -39,13 +39,14 @@ async function synthesize(text, lang, rate) {
  *
  * Returns the indexes that did not make it.
  */
-export async function recordSentences(code, sentences, { lang, rate, only, onSettled, mode, text, delivery: selectedDelivery }) {
+export async function recordSentences(code, sentences, { lang, rate, only, onSettled, mode, text, delivery: selectedDelivery, prepared }) {
   const delivery = deliveryFor({ mode, delivery: selectedDelivery });
   const plan = notebookPlan(text, lang, delivery);
   if (!sameSegmentPlan(plan.flatMap((part) => part.segments), sentences)) {
     throw new Error('The assignment server returned different phrases or sentences. Deploy the current assignment Worker, then create the assignment again.');
   }
-  if (mode === 'notebook') {
+  if (prepared) return uploadPreparedClips(code, sentences, prepared, { only, onSettled });
+  if (mode === 'notebook' || delivery === 'phrases') {
     const context = new AudioContext({ sampleRate: 24000 });
     const wanted = new Set(only || sentences.map((_, i) => i));
     const failed = [];
@@ -58,7 +59,7 @@ export async function recordSentences(code, sentences, { lang, rate, only, onSet
         if (!indexes.length) continue;
         let clips;
         try {
-          clips = await prepareNotebookSentence(part.sentence, { lang, rate, context, cueCache, delivery });
+          clips = await prepareNotebookSentence(part.sentence, { lang, rate, context, cueCache, delivery, punctuation: mode === 'notebook' });
         } catch (error) {
           for (const index of indexes) { failed.push(index); onSettled?.(index, error); }
           continue;
@@ -103,35 +104,47 @@ export async function recordSentences(code, sentences, { lang, rate, only, onSet
 export async function rerecordSegments(code, segments, { lang, rate, mode, only, onSettled }) {
   const wanted = (only || segments.map((_, i) => i)).slice().sort((a, b) => a - b);
   const failed = [];
-  if (mode !== 'notebook') {
-    const queue = wanted.slice();
-    async function drain() {
-      while (queue.length) {
-        const index = queue.shift();
-        try {
-          await uploadSentenceAudio(code, index, await synthesize(segments[index], lang, rate));
-          onSettled?.(index, null);
-        } catch (error) { failed.push(index); onSettled?.(index, error); }
-      }
-    }
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, drain));
-    return failed.sort((a, b) => a - b);
-  }
   const groups = segmentGroups(segments);
   const context = new AudioContext({ sampleRate: 24000 });
   const cueCache = new Map();
   try {
-    for (const index of wanted) {
-      const group = groups.find((g) => index >= g.start && index < g.start + g.count);
+    for (const group of groups) {
+      const indexes = wanted.filter((i) => i >= group.start && i < group.start + group.count);
+      if (!indexes.length) continue;
+      let clips;
       try {
-        const clip = await prepareNotebookSegment(segments[index], {
-          endsSentence: index === group.start + group.count - 1,
-          sentence: group.sentence, lang, rate, context, cueCache,
+        clips = await prepareNotebookSentence(group.sentence, {
+          segments: segments.slice(group.start, group.start + group.count),
+          lang, rate, context, cueCache, punctuation: mode === 'notebook',
         });
-        await uploadSentenceAudio(code, index, clip);
-        onSettled?.(index, null);
-      } catch (error) { failed.push(index); onSettled?.(index, error); }
+      } catch (error) {
+        for (const index of indexes) { failed.push(index); onSettled?.(index, error); }
+        continue;
+      }
+      for (const index of indexes) {
+        try {
+          await uploadSentenceAudio(code, index, clips[index - group.start]);
+          onSettled?.(index, null);
+        } catch (error) { failed.push(index); onSettled?.(index, error); }
+      }
     }
   } finally { await context.close(); }
+  return failed;
+}
+
+// Reviewed clips are uploaded verbatim, including on retry: never re-synthesize
+// and discard a teacher's boundary adjustments.
+export async function uploadPreparedClips(code, segments, prepared, { only, onSettled } = {}) {
+  if (!sameSegmentPlan(segments, prepared.segments) || prepared.clips.length !== segments.length
+    || prepared.clips.some((clip) => !(clip instanceof Blob) || !clip.size)) {
+    throw new Error('The reviewed audio does not match this assignment. Open the splitting studio again.');
+  }
+  const failed = [];
+  for (const index of only || segments.map((_, i) => i)) {
+    try {
+      await uploadSentenceAudio(code, index, prepared.clips[index]);
+      onSettled?.(index, null);
+    } catch (error) { failed.push(index); onSettled?.(index, error); }
+  }
   return failed;
 }

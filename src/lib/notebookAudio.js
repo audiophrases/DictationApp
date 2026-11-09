@@ -1,49 +1,62 @@
 import { ttsBase, voiceFailure } from './api';
 import { notebookPlan } from './notebook';
-import { sentenceEndCue, spokenPhrase } from './notebookShared';
+import { sentenceEndCue } from './notebookShared';
 import { wavClip } from './notebookWav';
 import { deliveryFor } from './delivery';
+import { sentenceCuts, estimatedCuts, validateCuts } from './audioSplits';
 
-async function speak(text, { lang, rate, context }) {
+async function speak(text, { lang, rate, context, signal }) {
   const query = new URLSearchParams({ text, lang, rate });
-  const response = await fetch(`${ttsBase()}/api/tts?${query}`);
-  if (!response.ok) throw await voiceFailure(response, 'notebook audio');
+  const response = await fetch(`${ttsBase()}/api/tts?${query}`, { signal });
+  if (!response.ok) throw await voiceFailure(response, 'sentence audio');
   return context.decodeAudioData(await response.arrayBuffer());
 }
 
-function punctuationAudio(label, { lang, rate, context, cueCache }) {
+function punctuationAudio(label, options) {
+  const { lang, rate, cueCache } = options;
   const key = `${lang}|${rate}|${label}`;
   if (!cueCache.has(key)) {
-    const loading = speak(`${label}.`, { lang, rate, context });
+    const loading = speak(`${label}.`, options);
     cueCache.set(key, loading);
     loading.catch(() => cueCache.delete(key));
   }
   return cueCache.get(key);
 }
 
-// Each phrase is recorded on its own. Cutting one recording of the whole
-// sentence at the voice's word timings clipped word endings: in natural speech
-// the words run together with ~10 ms between them, so there is no silence to
-// cut in, and Edge's voices refuse SSML <break> tags that would make one.
-export async function prepareNotebookSentence(sentence, { lang, rate, context, delivery = 'phrases', cueCache = new Map() }) {
-  const [{ segments }] = notebookPlan(sentence, lang, delivery);
-  const label = sentenceEndCue(sentence, lang);
-  const [cue, ...buffers] = await Promise.all([
-    label ? punctuationAudio(label, { lang, rate, context, cueCache }) : null,
-    ...segments.map((phrase, i) => speak(spokenPhrase(phrase, i === segments.length - 1), { lang, rate, context })),
-  ]);
-  return buffers.map((buffer, i) => wavClip(buffer, 0, buffer.duration, i === buffers.length - 1 ? cue : null));
+// Retain full sentences for previews and adjustments; split only afterwards.
+export async function prepareSentenceRecording(sentence, options) {
+  const { lang, rate, context, delivery = 'phrases', signal, allowEstimated = false } = options;
+  const segments = options.segments || notebookPlan(sentence, lang, delivery)[0].segments;
+  let buffer, boundaries;
+  if (segments.length > 1) {
+    const query = new URLSearchParams({ text: sentence, lang, rate, timings: '1' });
+    const response = await fetch(`${ttsBase()}/api/tts?${query}`, { signal });
+    if (!response.ok) throw await voiceFailure(response, 'sentence audio');
+    const payload = await response.json();
+    const bytes = Uint8Array.from(atob(payload.audio), (c) => c.charCodeAt(0));
+    buffer = await context.decodeAudioData(bytes.buffer);
+    boundaries = payload.boundaries;
+  } else buffer = await speak(sentence, options);
+  let cuts, warning = '';
+  try { cuts = sentenceCuts(segments, boundaries, buffer.duration); }
+  catch (error) {
+    if (!allowEstimated) throw error;
+    cuts = estimatedCuts(segments, buffer.duration);
+    warning = error.message;
+  }
+  const label = options.punctuation === false ? '' : sentenceEndCue(sentence, lang);
+  const cue = label ? await punctuationAudio(label, { ...options, cueCache: options.cueCache || new Map() }) : null;
+  return { sentence, segments, buffer, cuts, cue, warning };
 }
 
-// One stored segment on its own, for re-recording it: voiced as the end of a
-// sentence or not, and with that sentence's spoken punctuation when it ends one.
-export async function prepareNotebookSegment(phrase, { endsSentence, sentence, lang, rate, context, cueCache = new Map() }) {
-  const label = endsSentence ? sentenceEndCue(sentence, lang) : '';
-  const [cue, buffer] = await Promise.all([
-    label ? punctuationAudio(label, { lang, rate, context, cueCache }) : null,
-    speak(spokenPhrase(phrase, endsSentence), { lang, rate, context }),
-  ]);
-  return wavClip(buffer, 0, buffer.duration, cue);
+export function recordingClips(recording) {
+  const { buffer, cuts, segments, cue } = recording;
+  validateCuts(cuts, segments.length, buffer.duration);
+  return segments.map((_, i) => wavClip(buffer, cuts[i], cuts[i + 1], i === segments.length - 1 ? cue : null));
+}
+
+export async function prepareNotebookSentence(sentence, options) {
+  return recordingClips(await prepareSentenceRecording(sentence, options));
 }
 
 export async function prepareNotebook(text, settings, onProgress) {
@@ -58,7 +71,5 @@ export async function prepareNotebook(text, settings, onProgress) {
       onProgress?.(i + 1, plan.length);
     }
     return clips;
-  } finally {
-    await context.close();
-  }
+  } finally { await context.close(); }
 }

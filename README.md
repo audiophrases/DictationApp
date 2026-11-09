@@ -13,6 +13,15 @@ notebook recordings announce punctuation at each sentence ending. Existing
 settings and assignments keep their defaults: full sentences for typing and
 short phrases for notebooks.
 
+New assignments open the **Dictation splitting studio** before publishing. It
+records complete sentences, then uses word timings to suggest phrase cuts.
+Listen to the sentence or individual phrases, inspect the waveform, and adjust
+the split sliders before saving. Uncertain timing matches are flagged for manual
+review. Upload retries reuse the reviewed audio. **Edit > Recordings > Open
+splitting studio** generates a new sentence recording plan for an existing
+assignment, preserving its text and student answers. Saved audio keeps the cuts;
+the editable waveform and split controls last for the current studio session.
+
 Teachers can enable **Allow students to slow playback** when creating an
 assignment. Students then get a **Normal / Relaxed / Slow** dropdown in either
 typing or notebook mode. Normal uses the teacher's recorded pace; the slower

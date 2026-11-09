@@ -42,15 +42,6 @@ export function sentenceEndCue(sentence, lang = 'en-US') {
   return cues[index];
 }
 
-// What the voice is given for one phrase. A phrase that doesn't end the
-// sentence gets a trailing comma if it has no punctuation of its own, so it is
-// read with a continuing rise rather than the drop of a finished sentence.
-// Voice text only: what students write and are marked on is the phrase itself.
-export function spokenPhrase(phrase, isLast) {
-  if (isLast || /[,;:—–]["”’»)]*$/u.test(phrase)) return phrase;
-  return `${phrase},`;
-}
-
 // Which sentence each stored segment belongs to, worked out from the segments
 // alone: [{ sentence, start, count }]. Re-recording an existing assignment uses
 // this instead of splitting its text again, because the splitter may have

@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, Copy, Loader2, Mic, RefreshCw } from 'lucide-react';
 import { SPEEDS, LANGUAGES, REPLAY_LIMITS, FEEDBACK_MODES } from '../../lib/options';
 import { DEFAULT_GRADING_OPTIONS } from '../../lib/grading';
 import { createAssignment, publishAssignment } from '../../lib/assignmentApi';
 import { recordSentences } from '../../lib/buildAssignment';
 import { studentLink } from '../../lib/appLinks';
+import AudioSplitStudio from '../../components/AudioSplitStudio';
 import MarkingRules from '../../components/MarkingRules';
 import { notebookPlan } from '../../lib/notebook';
 import { deliveryFor, dictationUnit } from '../../lib/delivery';
@@ -36,7 +37,8 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
   // practice does unless the teacher says otherwise — one place to change, not two.
   const [grading, setGrading] = useState({ ...DEFAULT_GRADING_OPTIONS });
 
-  const [phase, setPhase] = useState('form'); // form | recording | done
+  const preparedAudio = useRef(null);
+  const [phase, setPhase] = useState('form'); // form | studio | recording | done
   const [code, setCode] = useState('');
   const [sentences, setSentences] = useState([]);
   const [recorded, setRecorded] = useState(0);
@@ -44,8 +46,8 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
 
-  const segments = useMemo(() => notebookPlan(passage, lang, delivery)
-    .flatMap((p) => p.segments), [passage, lang, delivery]);
+  const plan = useMemo(() => notebookPlan(passage, lang, delivery), [passage, lang, delivery]);
+  const segments = useMemo(() => plan.flatMap((p) => p.segments), [plan]);
   const previewCount = segments.length;
   const unit = dictationUnit({ delivery });
 
@@ -70,6 +72,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
       mode,
       delivery,
       text: passage,
+      prepared: preparedAudio.current,
       onSettled: (_index, failure) => {
         setRecorded((n) => n + 1);
         if (failure) setError(failure.message);
@@ -84,6 +87,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
     setRecorded(0);
     setFailed([]);
     setError('');
+    let createdCode = '';
     try {
       const { code: newCode, sentences: list } = await createAssignment({
         text: passage,
@@ -101,6 +105,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
         allowSlowdown,
         grading,
       });
+      createdCode = newCode;
       setCode(newCode);
       setSentences(list);
       await record(newCode, list);
@@ -108,13 +113,14 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
       setError(err.message);
       // Keep the code if we got one: the audio can be retried without
       // creating a second assignment.
-      if (!code) setPhase('form');
+      if (!createdCode) setPhase('form');
+      else setFailed(Array.from({ length: previewCount }, (_, i) => i));
     }
   }
 
   async function handleRetry() {
     setRecorded(sentences.length - failed.length);
-    await record(code, sentences, failed);
+    try { await record(code, sentences, failed); } catch (err) { setError(err.message); }
   }
 
   function copyLink() {
@@ -126,6 +132,10 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
       () => setError('Copying failed — select the link and copy it by hand.')
     );
   }
+
+  if (phase === 'studio') return <AudioSplitStudio plan={plan} lang={lang} rate={rate} mode={mode}
+    onCancel={() => setPhase('form')}
+    onAccept={async (prepared) => { preparedAudio.current = prepared; await handleCreate(); }} />;
 
   if (phase === 'done') {
     return (
@@ -345,10 +355,10 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
             <button
               className="btn-primary"
               style={{ flex: 1 }}
-              onClick={handleCreate}
+              onClick={() => { requireServer?.(); setPhase('studio'); }}
               disabled={previewCount === 0}
             >
-              <Mic size={18} /> Create and record {previewCount || ''} {unit}{previewCount !== 1 ? 's' : ''}
+              <Mic size={18} /> Generate audio and review splits
             </button>
           </div>
         </div>

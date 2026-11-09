@@ -15,16 +15,43 @@ short phrases for notebooks.
 
 New assignments open the **Dictation splitting studio** before publishing. It
 records complete sentences, then uses word timings to suggest phrase cuts.
-Listen to the sentence or individual phrases, inspect the waveform, and adjust
-the split sliders before saving. Use the word-move buttons at each boundary to
-move one or more words between neighbouring phrases; the audio cut follows the
-new wording. Reset restores the original phrases and timings. Uncertain timing matches are flagged for manual
-review. Upload retries reuse the reviewed audio. **Edit > Recordings > Open
+Listen to the sentence, each phrase (or click it on the waveform), or **Phrases
+in order** as students will hear them. The suggested phrases are only a start:
+**Merge with next** joins two phrases (down to **Merge into one phrase** for the
+whole sentence), **✂ Split** then a ✂ between two words starts a new phrase, and
+the word-move buttons move words across a split. Drag a split marker on the
+waveform, or use its slider, to fine-tune the timing. The audio cut follows
+every change; Reset restores the original phrases and timings, and the sentence
+buttons at the top show which sentences still need a listening check. Audio
+without word timings (human takes, Listening Studio voices, a split the voice
+gave no timing for) is cut at the nearest pause and flagged for manual review.
+Uncertain timing matches are flagged too. Upload retries reuse the reviewed audio. **Edit > Recordings > Open
 splitting studio** generates a new sentence recording plan for an existing
 assignment. Timing-only edits preserve student answers. Moving words changes
 the expected answers, so saving requires confirmation that student attempts,
 scores and released corrections will be reset. Saved audio keeps the cuts;
 the editable waveform and split controls last for the current studio session.
+
+**Listening Studio voices** (Choose voice and review splits) reads the
+dictation with PinPlay's Listening Studio: natural Qwen3 voices made on the
+teacher's own PC. It works in the local teacher copy only: double-click
+**start_studio.bat**, which starts Listening Studio (found in `..\pinplay`, or
+set `PINPLAY_DIR`) in a minimised window and opens the teacher page at
+`http://127.0.0.1:4173/create/`. As in the studio, describe the reader (gender,
+age, accent, pace; the default asks for the app's dialect) or choose a voice
+from its library, choose **Fixed voice** (same reader in every sentence) or
+**Acted** (follows a delivery note), and approve the voice sample (**↻ Another
+sample**, **Save voice to library**) before every sentence is made. Each
+sentence's words are checked with Whisper and retried once if they differ;
+**↻ Try again** makes a new take of one sentence only. Notebook punctuation cues
+are said in the same voice. Then review the splits as above. Leaving and coming
+back finds the same studio recording, and only what changed is made again.
+English, French, Spanish, German, Italian, Portuguese and Russian only; the
+voice speed setting doesn't apply (ask for the pace in the description). The
+page talks to the studio through the local server (`/api/listening-studio/*`,
+`server/listeningStudio.js`): loopback and same-origin only, and limited to the
+routes a dictation needs, so nothing in PinPlay changes and deleting or quitting
+stay in the studio's own page.
 
 Human voices use **Choose voice and review splits > Human voices · recording
 sessions**, backed by the same PinPlay service and volunteer recording page as
@@ -80,6 +107,12 @@ working offline in the pack.
 dependencies on first run, builds the app, starts a local server with neural
 voices, and opens your browser at `http://127.0.0.1:4173`. Keep the console
 window open while using the app; close it to stop.
+
+**Teacher, with Listening Studio voices:** double-click `start_studio.bat`.
+It starts PinPlay's Listening Studio if this computer has it (first time: its
+own launcher sets it up), then does what `start_local.bat` does and opens the
+teacher page (`/create/`). The Listening Studio window is minimised; close it
+to free the voice model's memory.
 
 Requires [Node.js](https://nodejs.org). For active development instead, use
 `npm run dev` (or double-click `start_debug.bat`), which runs Vite's dev

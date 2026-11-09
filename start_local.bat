@@ -2,6 +2,9 @@
 setlocal
 cd /d "%~dp0"
 title Dictation Time (local)
+rem Optional: the page to open, e.g. "create/" for the teacher's page
+rem (start_studio.bat passes it).
+set "OPEN_PATH=%~1"
 
 rem Loopback only. server/serve.js defaults to every interface because that is
 rem what a host needs, but locally that makes Windows Defender ask permission,
@@ -47,6 +50,6 @@ echo Starting Dictation Time (production build) with neural voices at http://127
 echo Keep this window open while using the app. Close it to stop.
 echo.
 
-start /b "" cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:4173"
+start /b "" cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:4173/%OPEN_PATH%"
 
 node server\serve.js

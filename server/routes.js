@@ -5,6 +5,7 @@
 import { handleTTSRequest } from './tts.js';
 import { handleDictationRequest } from './dictation.js';
 import { cacheStats } from './ttsCache.js';
+import { handleListeningStudioRequest, PREFIX as LISTENING_STUDIO_PREFIX } from './listeningStudio.js';
 
 // The frontend is served from GitHub Pages while these endpoints stay on
 // Render, so every call is cross-origin. `*` is the honest answer here: both
@@ -19,13 +20,21 @@ function applyCors(res) {
 }
 
 /**
- * Handles /health, /api/tts and /api/dictation. Returns true if the request was
+ * Handles /health, /api/tts, /api/dictation and the local-only Listening
+ * Studio bridge (/api/listening-studio/*). Returns true if the request was
  * one of those (and is now answered), false to let the caller fall through to
  * its own handling — static files in production, Vite's own middleware in dev.
  */
 export async function handleAppRequest(req, res, { service = 'dictationapp' } = {}) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const { pathname } = url;
+
+  // Before the CORS header below: the Listening Studio bridge is for the page
+  // on this computer only and must never answer another origin.
+  if (pathname.startsWith(LISTENING_STUDIO_PREFIX)) {
+    await handleListeningStudioRequest(req, res);
+    return true;
+  }
 
   if (pathname !== '/health' && pathname !== '/api/tts' && pathname !== '/api/dictation') {
     return false;

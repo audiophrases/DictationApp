@@ -1018,3 +1018,61 @@ input:focus {
 .segment-text { flex: 1; min-width: 0; }
 .attempt-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
 .next-steps { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 0.75rem; margin-top: 1.25rem; }
+
+/* Teacher: the dictation splitting studio and Listening Studio voices. */
+.split-studio,
+.studio-voices { max-width: 900px; width: 100%; margin: 1.5rem auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.split-studio .field-hint,
+.studio-voices .field-hint { margin-top: 0; }
+.split-sentence { font-size: 1.1rem; }
+.split-toolbar { justify-content: flex-start; gap: 0.5rem; }
+.studio-player { display: flex; flex-direction: column; gap: 0.25rem; }
+.studio-note { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem 1rem; border-radius: 8px; background: var(--surface-sunken); }
+
+.sentence-pills { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.sentence-pill { padding: 0.2rem 0.6rem; min-width: 2.2rem; font-size: 0.85rem; background: var(--subtle-fill); color: var(--text-color); border: 1px solid transparent; }
+.sentence-pill.needs-check { color: var(--warning-color); }
+.sentence-pill.is-current { border-color: var(--primary-color); background: rgba(59, 130, 246, 0.15); }
+
+/* Waveform: drag a marker to move a split, click a phrase to hear it. */
+.split-wave { position: relative; height: 96px; border-radius: 8px; overflow: hidden; background: var(--surface-sunken); cursor: pointer; touch-action: none; user-select: none; }
+.split-wave svg { display: block; width: 100%; height: 100%; }
+.split-region-a { fill: rgba(59, 130, 246, 0.07); }
+.split-region-b { fill: rgba(16, 185, 129, 0.09); }
+.split-wave-label { position: absolute; top: 2px; transform: translateX(-50%); font-size: 0.75rem; font-weight: 600; color: var(--text-muted); pointer-events: none; }
+.split-marker { position: absolute; top: 0; bottom: 0; width: 16px; margin-left: -8px; cursor: ew-resize; }
+.split-marker::after { content: ''; position: absolute; top: 0; bottom: 0; left: 7px; width: 2px; background: var(--primary-color); }
+.split-marker:hover::after { left: 6px; width: 4px; }
+
+.split-phrases { list-style: none; display: flex; flex-direction: column; gap: 0.5rem; }
+.split-phrase { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--surface-sunken); }
+.split-phrase-number { min-width: 1.4rem; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
+.split-phrase-text { flex: 1; min-width: 12rem; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
+.split-phrase-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.split-gap { padding: 0 0.35rem; font-size: 0.8rem; line-height: 1.6; background: rgba(59, 130, 246, 0.15); color: var(--primary-color); border-radius: 4px; }
+.split-gap:hover:not(:disabled) { background: var(--primary-color); color: white; }
+.btn-ghost.is-active { color: var(--primary-color); border-color: var(--primary-color); }
+.split-boundary { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.35rem 0 0 2rem; padding-left: 0.75rem; border-left: 2px solid var(--primary-color); }
+.split-boundary-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.split-slider { display: flex; flex-direction: column; font-size: 0.85rem; color: var(--text-muted); }
+.split-slider input { width: 100%; }
+
+.studio-voice-form { display: flex; flex-direction: column; gap: 0.6rem; border: 1px solid var(--glass-border); border-radius: 8px; padding: 1rem; }
+.studio-voice-form legend { padding: 0 0.4rem; font-weight: 600; }
+.studio-voice-form .field-label { margin-bottom: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.studio-choice { display: flex; flex-direction: column; gap: 0.25rem; }
+.studio-choice label { display: flex; gap: 0.5rem; align-items: baseline; }
+.studio-state { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; }
+.studio-lines { display: flex; flex-direction: column; gap: 0.35rem; padding-left: 1.5rem; }
+.studio-lines li { padding: 0.4rem 0.6rem; border-radius: 8px; background: var(--surface-sunken); }
+.studio-line-text { display: block; }
+.studio-line-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.3rem; }
+.studio-check { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
+.studio-check-ok { color: var(--success-color); }
+.studio-check-minor { color: var(--warning-color); }
+.studio-check-differs { color: var(--danger-color); }
+.studio-heard { display: block; }
+.split-studio > button,
+.studio-voices > button,
+.studio-voices > .btn-ghost { align-self: flex-start; }
+.split-check { font-size: 0.9rem; color: var(--warning-color); }

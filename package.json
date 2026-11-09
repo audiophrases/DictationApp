@@ -26,7 +26,8 @@
     "test:recording-sessions": "node --test src/lib/pinplaySessions.test.mjs",
     "test:audio-splits": "node --test src/lib/audioSplits.test.mjs",
     "test:notebook": "node --test src/lib/notebook.test.mjs",
-    "test": "npm run test:sentences && npm run test:notebook && npm run test:audio-splits && npm run test:recording-sessions && npm run test:score && npm run test:grading && npm run test:student-auth && npm run test:audio-cache && npm run test:dictation && npm run test:worker"
+    "test:listening-studio": "node --test src/lib/listeningStudio.test.mjs server/listeningStudio.test.mjs",
+    "test": "npm run test:sentences && npm run test:notebook && npm run test:audio-splits && npm run test:listening-studio && npm run test:recording-sessions && npm run test:score && npm run test:grading && npm run test:student-auth && npm run test:audio-cache && npm run test:dictation && npm run test:worker"
   },
   "dependencies": {
     "compromise": "^14.19.0",

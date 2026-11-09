@@ -176,3 +176,98 @@ test('human takes keep their audio and phrase plan without calling TTS', async (
   assert.equal(result.cue, null);
   assert.equal(recordingClips(result).length, 2);
 });
+
+// ---------------------------------------------------------------- merging and splitting
+const { mergeSplit, mergeAll, splitSegment, pauseCuts, speechBounds, quietestNear } = await import('./audioSplits.js');
+const { validatedNotebookSegments, segmentGroups } = await import('./notebookShared.js');
+
+// Speech-like blocks with quiet gaps: [seconds, loud?]
+function speech(pattern, sampleRate = 1000) {
+  const samples = [];
+  let seed = 7;
+  const noise = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 - 0.5; };
+  for (const [seconds, loud] of pattern) {
+    for (let i = 0; i < Math.round(seconds * sampleRate); i++) samples.push(noise() * (loud ? 0.8 : 0.001));
+  }
+  const data = Float32Array.from(samples);
+  return { sampleRate, length: data.length, duration: data.length / sampleRate, getChannelData: () => data };
+}
+// "Moving abroad" | pause 1.30-1.55 | "helped him."
+const spoken = speech([[0.3, false], [1.0, true], [0.25, false], [0.8, true], [0.4, false]]);
+
+test('speech bounds skip leading and trailing silence', () => {
+  const [start, end] = speechBounds(spoken.getChannelData(0), spoken.sampleRate);
+  assert.ok(Math.abs(start - 0.3) < 0.03, `start ${start}`);
+  assert.ok(Math.abs(end - 2.35) < 0.03, `end ${end}`);
+});
+
+test('cuts without word timings land in the pause between phrases', () => {
+  const cuts = pauseCuts(['Moving abroad', 'helped him.'], spoken.getChannelData(0), spoken.sampleRate);
+  assert.equal(cuts.length, 3);
+  assert.ok(cuts[1] > 1.3 && cuts[1] < 1.55, `cut ${cuts[1]}`);
+  // Centred on the pause, not at its edge.
+  assert.ok(Math.abs(cuts[1] - 1.425) < 0.06, `cut ${cuts[1]}`);
+  assert.deepEqual(pauseCuts(['One phrase.'], spoken.getChannelData(0), spoken.sampleRate), [0, spoken.duration]);
+  // Never outside the allowed range, even with nothing quiet nearby.
+  const flat = Float32Array.from({ length: 1000 }, () => 0.5);
+  const t = quietestNear(flat, 1000, 0.5, 0.45, 0.55);
+  assert.ok(t >= 0.45 && t <= 0.55);
+});
+
+test('merging phrases keeps the words, the audio and the other cuts', () => {
+  const recording = { segments: ['Moving', 'abroad helped', 'him.'], boundaries, buffer,
+    cuts: [0, 0.4675, 1.1675, 1.5], warning: '', checked: true };
+  const merged = mergeSplit(recording, 1);
+  assert.deepEqual(merged.segments, ['Moving abroad helped', 'him.']);
+  assert.deepEqual(merged.cuts, [0, 1.1675, 1.5]);
+  assert.equal(merged.buffer, buffer);
+  assert.equal(merged.checked, true);
+  assert.deepEqual(mergeSplit(merged, 1).segments, ['Moving abroad helped him.']);
+  assert.deepEqual(mergeSplit(merged, 1).cuts, [0, 1.5]);
+  const one = mergeAll(recording);
+  assert.deepEqual(one.segments, ['Moving abroad helped him.']);
+  assert.deepEqual(one.cuts, [0, 1.5]);
+  for (const bad of [0, 3, 1.5]) assert.throws(() => mergeSplit(recording, bad));
+  assert.deepEqual(recording.segments, ['Moving', 'abroad helped', 'him.']);
+});
+
+test('splitting a phrase uses word timings when the voice gave them', () => {
+  const recording = { segments: ['Moving abroad helped him.'], boundaries, buffer, cuts: [0, 1.5], warning: '', checked: true };
+  const split = splitSegment(recording, 0, 2);
+  assert.deepEqual(split.segments, ['Moving abroad', 'helped him.']);
+  assert.deepEqual(split.cuts, [0, 0.90625, 1.5]);
+  assert.equal(split.warning, '');
+  assert.equal(split.checked, true);
+  const again = splitSegment(split, 1, 1);
+  assert.deepEqual(again.segments, ['Moving abroad', 'helped', 'him.']);
+  assert.equal(again.cuts[2], (1.16 + 1.175) / 2);
+  for (const words of [0, 4, 1.5]) assert.throws(() => splitSegment(recording, 0, words));
+  assert.throws(() => splitSegment(recording, 1, 1));
+});
+
+test('splitting audio without word timings goes to the pause and asks for a listen', () => {
+  const recording = { segments: ['Moving abroad helped him.'], boundaries: [], buffer: spoken,
+    cuts: [0, spoken.duration], warning: '', checked: true };
+  const split = splitSegment(recording, 0, 2);
+  assert.deepEqual(split.segments, ['Moving abroad', 'helped him.']);
+  assert.ok(split.cuts[1] > 1.3 && split.cuts[1] < 1.55, `cut ${split.cuts[1]}`);
+  assert.ok(split.warning);
+  assert.equal(split.checked, false);
+  const moved = moveSplitWord({ ...split, checked: true }, 1, -1);
+  assert.deepEqual(moved.segments, ['Moving', 'abroad helped him.']);
+  assert.equal(moved.checked, false);
+  validateCuts(moved.cuts, 2, spoken.duration);
+});
+
+test('merged and split phrase plans are still valid assignment answers', () => {
+  const text = 'Moving abroad helped him. It was hard at first.';
+  for (const segments of [
+    ['Moving abroad helped him.', 'It was hard at first.'],
+    ['Moving abroad', 'helped him.', 'It was', 'hard', 'at first.'],
+  ]) {
+    assert.deepEqual(validatedNotebookSegments(text, segments), segments);
+    const groups = segmentGroups(segments);
+    assert.deepEqual(groups.map((g) => g.sentence), ['Moving abroad helped him.', 'It was hard at first.']);
+    assert.equal(groups.reduce((n, g) => n + g.count, 0), segments.length);
+  }
+});

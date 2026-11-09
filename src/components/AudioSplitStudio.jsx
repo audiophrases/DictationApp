@@ -1,10 +1,20 @@
-import { moveSplitWord } from '../lib/audioSplits';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { mergeAll, mergeSplit, moveSplitWord, splitSegment } from '../lib/audioSplits';
 import { sameSegmentPlan } from '../lib/notebookShared';
-import { useEffect, useMemo, useRef, useState } from 'react';
 import { prepareSentenceRecording, recordingClips } from '../lib/notebookAudio';
 import { wavClip } from '../lib/notebookWav';
 
-function Waveform({ buffer, cuts }) {
+const wordsOf = (text) => text.trim().split(/\s+/u).filter(Boolean);
+// The pause between phrases when playing them in order, as a student would
+// hear them one after another (they type in between; this is just a sense of
+// how each phrase sounds on its own).
+const GAP_MS = 900;
+
+// The sentence's waveform. Drag a split marker to move it; click a phrase to
+// hear it. The sliders below remain the keyboard-accessible controls.
+function Waveform({ buffer, cuts, disabled, onMove, onPlay }) {
+  const box = useRef(null);
+  const drag = useRef(null);
   const path = useMemo(() => {
     const samples = buffer.getChannelData(0);
     const step = Math.max(1, Math.ceil(samples.length / 600));
@@ -12,18 +22,40 @@ function Waveform({ buffer, cuts }) {
     for (let i = 0; i < samples.length; i += step) {
       let peak = 0;
       for (let j = i; j < Math.min(i + step, samples.length); j++) peak = Math.max(peak, Math.abs(samples[j]));
-      const x = i / samples.length * 600;
-      lines.push(`M${x},${40 - peak * 38}V${40 + peak * 38}`);
+      lines.push(`M${i / samples.length * 600},${40 - peak * 38}V${40 + peak * 38}`);
     }
     return lines.join('');
   }, [buffer]);
-  return <svg viewBox="0 0 600 80" role="img" aria-label="Sentence waveform with split markers" style={{ width: '100%', background: 'var(--bg-color)', borderRadius: 8 }}>
-    <path d={path} stroke="var(--text-muted)" strokeWidth="1" />
-    {cuts.slice(1, -1).map((cut, i) => <g key={i}>
-      <line x1={cut / buffer.duration * 600} x2={cut / buffer.duration * 600} y1="0" y2="80" stroke="var(--accent-color, #7c6ff0)" strokeWidth="2" />
-      <text x={cut / buffer.duration * 600 + 4} y="14" fill="currentColor" fontSize="12">{i + 1}</text>
-    </g>)}
-  </svg>;
+  const percent = (time) => `${time / buffer.duration * 100}%`;
+  const timeAt = (clientX) => {
+    const rect = box.current.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * buffer.duration;
+  };
+  return <div ref={box} className="split-wave"
+    onPointerMove={(e) => { if (drag.current) { drag.current.moved = true; onMove(drag.current.index, timeAt(e.clientX)); } }}
+    onPointerUp={() => { setTimeout(() => { drag.current = null; }); }}
+    onPointerCancel={() => { drag.current = null; }}
+    onClick={(e) => {
+      if (drag.current?.moved || disabled) return;
+      const time = timeAt(e.clientX);
+      const phrase = cuts.findIndex((cut, i) => i < cuts.length - 1 && time >= cut && time < cuts[i + 1]);
+      if (phrase >= 0) onPlay(phrase);
+    }}>
+    <svg viewBox="0 0 600 80" preserveAspectRatio="none" role="img" aria-label="Sentence waveform with split markers">
+      {cuts.slice(0, -1).map((cut, i) => <rect key={i} x={cut / buffer.duration * 600} y="0" height="80"
+        width={(cuts[i + 1] - cut) / buffer.duration * 600} className={i % 2 ? 'split-region-b' : 'split-region-a'} />)}
+      <path d={path} stroke="var(--text-muted)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+    </svg>
+    {cuts.slice(0, -1).map((cut, i) => <span key={i} className="split-wave-label" style={{ left: percent((cut + cuts[i + 1]) / 2) }}>{i + 1}</span>)}
+    {cuts.slice(1, -1).map((cut, i) => <span key={i} className="split-marker" style={{ left: percent(cut) }}
+      title={`Drag split ${i + 1}`} aria-hidden="true"
+      onPointerDown={(e) => {
+        if (disabled) return;
+        e.stopPropagation();
+        drag.current = { index: i + 1, moved: false };
+        box.current.setPointerCapture(e.pointerId);
+      }} />)}
+  </div>;
 }
 
 export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onAccept, acceptLabel = 'Use audio and create assignment', segmentChangeNotice = '', initialRecordings = null }) {
@@ -34,18 +66,21 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
   const [attempt, setAttempt] = useState(0);
   const [confirmedChange, setConfirmedChange] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [preview, setPreview] = useState(null);
+  const [preview, setPreview] = useState(null); // { blob, label, queue }
   const [url, setUrl] = useState('');
+  const [splitting, setSplitting] = useState(-1); // the phrase whose word gaps are shown
   const player = useRef(null);
+  const sequence = useRef(0);
   const recording = recordings[index];
   const changedSegments = recordings.some((r) => !sameSegmentPlan(r.originalSegments, r.segments));
+  const phraseCount = recordings.reduce((n, r) => n + r.segments.length, 0);
+  const originalCount = recordings.reduce((n, r) => n + r.originalSegments.length, 0);
 
   useEffect(() => {
+    const fresh = (result) => ({ ...result, originalCuts: result.cuts.slice(), originalSegments: result.segments.slice(),
+      originalWarning: result.warning, checked: !result.warning });
     if (initialRecordings) {
-      setRecordings(initialRecordings.map((result) => ({ ...result,
-        originalCuts: result.cuts.slice(), originalSegments: result.segments.slice(),
-        originalWarning: result.warning, checked: !result.warning,
-      })));
+      setRecordings(initialRecordings.map(fresh));
       setIndex(0); setLoading(false); setError('');
       return;
     }
@@ -61,7 +96,7 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
             punctuation: mode === 'notebook', allowEstimated: true, signal: controller.signal,
           });
           if (controller.signal.aborted) return;
-          setRecordings((items) => [...items, { ...result, originalCuts: result.cuts.slice(), originalSegments: result.segments.slice(), originalWarning: result.warning, checked: !result.warning }]);
+          setRecordings((items) => [...items, fresh(result)]);
         }
       } catch (err) { if (!controller.signal.aborted) setError(err.message); }
       finally {
@@ -72,27 +107,46 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
     return () => { controller.abort(); };
   }, [plan, lang, rate, mode, attempt, initialRecordings]);
 
+  const previewBlob = preview?.blob;
   useEffect(() => {
-    if (!preview) { setUrl(''); return; }
-    const next = URL.createObjectURL(preview);
+    if (!previewBlob) { setUrl(''); return; }
+    const next = URL.createObjectURL(previewBlob);
     setUrl(next);
     return () => URL.revokeObjectURL(next);
-  }, [preview]);
+  }, [previewBlob]);
 
-  function stop() { player.current?.pause(); setPreview(null); }
+  function stop() { sequence.current += 1; player.current?.pause(); setPreview(null); }
+  function listen(blob, label) { sequence.current += 1; player.current?.pause(); setPreview({ blob, label, queue: [] }); }
+  function playInOrder() {
+    const clips = recordingClips(recording);
+    sequence.current += 1;
+    player.current?.pause();
+    setPreview({ blob: clips[0], label: `Phrase 1 of ${clips.length}`, queue: clips.slice(1), total: clips.length });
+  }
+  function ended() {
+    if (!preview?.queue?.length) return;
+    const token = sequence.current;
+    const [blob, ...queue] = preview.queue;
+    setTimeout(() => {
+      if (sequence.current !== token) return;
+      setPreview({ ...preview, blob, queue, label: `Phrase ${preview.total - queue.length} of ${preview.total}` });
+    }, GAP_MS);
+  }
+
+  function goTo(next) { stop(); setSplitting(-1); setIndex(next); }
   function update(changes) {
     stop();
     setConfirmedChange(false);
     setRecordings((items) => items.map((item, i) => i === index ? { ...item, ...changes } : item));
   }
+  function change(edit) {
+    try { update(edit(recording)); setError(''); setSplitting(-1); }
+    catch (err) { setError(err.message); }
+  }
   function moveCut(cutIndex, value) {
     const cuts = recording.cuts.slice();
     cuts[cutIndex] = Math.max(cuts[cutIndex - 1] + 0.01, Math.min(cuts[cutIndex + 1] - 0.01, value));
     update({ cuts, checked: !recording.warning });
-  }
-  function moveWord(splitIndex, direction) {
-    try { update(moveSplitWord(recording, splitIndex, direction)); setError(''); }
-    catch (err) { setError(err.message); }
   }
   async function accept() {
     setSaving(true); setError(''); stop();
@@ -101,46 +155,89 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
     } catch (err) { setError(err.message); setSaving(false); }
   }
 
-  return <section className="glass-panel" style={{ maxWidth: 900, margin: '1.5rem auto', padding: '1.5rem' }}>
+  const phrases = recording?.segments.length || 0;
+  const unchecked = recordings.filter((r) => !r.checked).length;
+
+  return <section className="glass-panel split-studio">
     <h2>Dictation splitting studio</h2>
-    <p className="field-hint">Listen to the full sentence, then check its phrases. The automatic phrases are a starting point. Move words to the previous or next phrase, then fine-tune the timing if needed. Changes use the same recording and preserve its intonation.</p>
-    <p role="status">{loading ? `Generating full sentences: ${recordings.length} of ${plan.length}` : `${recordings.length} of ${plan.length} sentences ready`}</p>
+    <p className="field-hint">Listen to each sentence and its phrases. The automatic phrases are only a starting point: merge phrases that sound better together, split a long one between two words, move words across a split, and drag a split on the waveform to fine-tune the timing. Every change reuses the same recording, so the intonation is kept.</p>
+    <p role="status">{loading ? `Generating full sentences: ${recordings.length} of ${plan.length}` : `${recordings.length} of ${plan.length} sentences ready`}
+      {!loading && recordings.length > 0 && ` · ${phraseCount} phrase${phraseCount === 1 ? '' : 's'}${phraseCount !== originalCount ? ` (was ${originalCount})` : ''}`}
+      {unchecked > 0 && ` · ${unchecked} to check by ear`}</p>
     {error && <p className="fetch-error" role="alert">{error}</p>}
     {!loading && recordings.length !== plan.length && <button className="btn-primary" onClick={() => setAttempt((n) => n + 1)}>Retry generation</button>}
+    {recordings.length > 1 && <nav className="sentence-pills" aria-label="Sentences">
+      {recordings.map((r, i) => <button key={i} className={`sentence-pill${i === index ? ' is-current' : ''}${r.checked ? '' : ' needs-check'}`}
+        aria-current={i === index ? 'true' : undefined} disabled={saving} onClick={() => goTo(i)}
+        title={`Sentence ${i + 1}: ${r.segments.length} phrase${r.segments.length === 1 ? '' : 's'}${r.checked ? '' : ' · check by ear'}`}>
+        {i + 1}{!r.checked && <span aria-label=" (check by ear)"> ⚠</span>}
+      </button>)}
+    </nav>}
     {recording && <>
       <div className="edit-actions" style={{ justifyContent: 'space-between' }}>
-        <button className="btn-ghost" disabled={index === 0 || saving} onClick={() => { stop(); setIndex(index - 1); }}>Previous sentence</button>
-        <span>Sentence {index + 1} / {plan.length}</span>
-        <button className="btn-ghost" disabled={index + 1 >= recordings.length || saving} onClick={() => { stop(); setIndex(index + 1); }}>Next sentence</button>
+        <button className="btn-ghost" disabled={index === 0 || saving} onClick={() => goTo(index - 1)}>Previous sentence</button>
+        <span>Sentence {index + 1} / {plan.length} · {phrases} phrase{phrases === 1 ? '' : 's'}</span>
+        <button className="btn-ghost" disabled={index + 1 >= recordings.length || saving} onClick={() => goTo(index + 1)}>Next sentence</button>
       </div>
-      <p style={{ margin: '1rem 0', fontSize: '1.1rem' }}>{recording.sentence}</p>
-      <Waveform buffer={recording.buffer} cuts={recording.cuts} />
-      <button className="btn-ghost" disabled={saving} onClick={() => setPreview(wavClip(recording.buffer, 0, recording.buffer.duration))}>Listen to full sentence</button>
-      {url && <audio ref={player} src={url} controls autoPlay style={{ width: '100%', margin: '0.75rem 0' }} />}
-      <ol style={{ paddingLeft: '1.5rem' }}>
-        {recording.segments.map((segment, i) => <li key={i} style={{ margin: '1rem 0' }}>
-          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ flex: 1 }}>{segment}</span>
-            <button className="btn-ghost btn-small" disabled={saving} onClick={() => setPreview(recordingClips(recording)[i])}>Listen to phrase {i + 1}</button>
-          </div>
-          {i < recording.segments.length - 1 && <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-            <button className="btn-ghost btn-small" disabled={saving || segment.trim().split(/\s+/u).length < 2}
-              onClick={() => moveWord(i + 1, -1)}>Move last word to next phrase →</button>
-            <button className="btn-ghost btn-small" disabled={saving || recording.segments[i + 1].trim().split(/\s+/u).length < 2}
-              onClick={() => moveWord(i + 1, 1)}>← Bring first word from next phrase</button>
-          </div>}
-          {i < recording.segments.length - 1 && <label style={{ display: 'block', marginTop: '0.5rem' }}>
-            Split {i + 1}: {recording.cuts[i + 1].toFixed(2)} s
-            <input aria-label={`Split ${i + 1} time in seconds`} type="range" step="0.01"
-              min={recording.cuts[i] + 0.01} max={recording.cuts[i + 2] - 0.01}
-              value={recording.cuts[i + 1]} disabled={saving}
-              onChange={(e) => moveCut(i + 1, Number(e.target.value))} style={{ width: '100%' }} />
-          </label>}
-        </li>)}
+      <p className="split-sentence">{recording.sentence}</p>
+      <Waveform buffer={recording.buffer} cuts={recording.cuts} disabled={saving}
+        onMove={(cutIndex, time) => moveCut(cutIndex, time)}
+        onPlay={(i) => listen(recordingClips(recording)[i], `Phrase ${i + 1}`)} />
+      <div className="edit-actions split-toolbar">
+        <button className="btn-ghost btn-small" disabled={saving} onClick={() => listen(wavClip(recording.buffer, 0, recording.buffer.duration), 'Full sentence')}>▶ Full sentence</button>
+        {phrases > 1 && <button className="btn-ghost btn-small" disabled={saving} onClick={playInOrder}>▶ Phrases in order</button>}
+        {phrases > 1 && <button className="btn-ghost btn-small" disabled={saving} onClick={() => change(mergeAll)}>Merge into one phrase</button>}
+        <button className="btn-ghost btn-small" disabled={saving || (sameSegmentPlan(recording.originalSegments, recording.segments) && recording.cuts.every((cut, i) => cut === recording.originalCuts[i]))}
+          onClick={() => update({ cuts: recording.originalCuts.slice(), segments: recording.originalSegments.slice(), warning: recording.originalWarning, checked: !recording.originalWarning })}>Reset sentence</button>
+      </div>
+      {/* url lags preview by one render (it is made in an effect). */}
+      {url && preview && <div className="studio-player">
+        <span className="field-hint">{preview.label}{preview.queue?.length ? ' · next phrase follows' : ''}</span>
+        <audio ref={player} src={url} controls autoPlay onEnded={ended} style={{ width: '100%' }} />
+      </div>}
+      <ol className="split-phrases">
+        {recording.segments.map((segment, i) => {
+          const words = wordsOf(segment);
+          const next = recording.segments[i + 1];
+          return <li key={i}>
+            <div className="split-phrase">
+              <span className="split-phrase-number">{i + 1}</span>
+              <span className="split-phrase-text">{splitting === i
+                ? words.map((word, j) => <Fragment key={j}>
+                  {j > 0 && <button className="split-gap" disabled={saving} aria-label={`Split before “${word}”`}
+                    title="Split here" onClick={() => change((r) => splitSegment(r, i, j))}>✂</button>}
+                  <span>{word}</span>
+                </Fragment>)
+                : segment}</span>
+              <span className="split-phrase-actions">
+                <button className="btn-ghost btn-small" disabled={saving} onClick={() => listen(recordingClips(recording)[i], `Phrase ${i + 1}`)}>▶ Listen</button>
+                {words.length > 1 && <button className={`btn-ghost btn-small${splitting === i ? ' is-active' : ''}`} disabled={saving}
+                  aria-pressed={splitting === i} onClick={() => setSplitting(splitting === i ? -1 : i)}>{splitting === i ? 'Cancel split' : '✂ Split'}</button>}
+              </span>
+            </div>
+            {splitting === i && <p className="field-hint">Click ✂ between two words to start a new phrase there.</p>}
+            {next !== undefined && <div className="split-boundary">
+              <div className="split-boundary-actions">
+                <button className="btn-ghost btn-small" disabled={saving} title={`Join phrases ${i + 1} and ${i + 2}`}
+                  onClick={() => change((r) => mergeSplit(r, i + 1))}>Merge with next ⤵</button>
+                <button className="btn-ghost btn-small" disabled={saving || words.length < 2}
+                  onClick={() => change((r) => moveSplitWord(r, i + 1, -1))}>Last word to next →</button>
+                <button className="btn-ghost btn-small" disabled={saving || wordsOf(next).length < 2}
+                  onClick={() => change((r) => moveSplitWord(r, i + 1, 1))}>← First word from next</button>
+              </div>
+              <label className="split-slider">
+                Split {i + 1}: {recording.cuts[i + 1].toFixed(2)} s
+                <input aria-label={`Split ${i + 1} time in seconds`} type="range" step="0.01"
+                  min={recording.cuts[i] + 0.01} max={recording.cuts[i + 2] - 0.01}
+                  value={recording.cuts[i + 1]} disabled={saving}
+                  onChange={(e) => moveCut(i + 1, Number(e.target.value))} />
+              </label>
+            </div>}
+          </li>;
+        })}
       </ol>
-      {recording.segments.length > 1 && <button className="btn-ghost btn-small" disabled={saving} onClick={() => update({ cuts: recording.originalCuts.slice(), segments: recording.originalSegments.slice(), warning: recording.originalWarning, checked: !recording.originalWarning })}>Reset sentence splits</button>}
-      {recording.warning && <div role="alert" style={{ margin: '1rem 0' }}>
-        <p className="fetch-error">Estimated splits — {recording.warning}</p>
+      {recording.warning && <div role="alert" className="studio-note">
+        <p className="split-check">Check by ear — {recording.warning}</p>
         <label><input type="checkbox" checked={recording.checked} disabled={saving} onChange={(e) => update({ checked: e.target.checked })} /> I listened to every phrase in this sentence and checked the splits.</label>
       </div>}
     </>}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AudioSplitStudio from './AudioSplitStudio';
+import StudioVoiceFinder from './StudioVoiceFinder';
 import { takeRecording } from '../lib/notebookAudio';
 import {
   NARRATOR, STUDIO_LANGUAGE_NAMES, bridgeAvailable, cueLines, defaultDescription,
@@ -121,7 +122,18 @@ export default function ListeningStudioVoices({ plan, title, lang, mode, onCance
 
   function edit(changes) { setFormTouched(true); setForm((current) => ({ ...current, ...changes })); }
 
+  // A voice chosen in 🌍 Find a voice (just added to the library, or there already).
+  async function chooseFoundVoice(voice, added) {
+    if (added) {
+      const { voices } = await studioApi('library');
+      setLibrary(voices || []);
+    }
+    edit({ source: 'library', libraryVoice: voice.id });
+    setMessage(`“${voice.name}” ${added ? 'is now in the voice library and ' : 'is '}chosen for this dictation. Next: make the voice sample.`);
+  }
+
   function request(base = {}) {
+    if (form.source === 'find') throw new Error('Choose a voice in the list first (“Use this voice”).');
     const libraryVoice = form.source === 'library' ? form.libraryVoice : '';
     if (form.source === 'library' && !libraryVoice) throw new Error('Choose a voice from the library.');
     const description = form.source === 'library'
@@ -225,7 +237,7 @@ export default function ListeningStudioVoices({ plan, title, lang, mode, onCance
 
   return <section className="glass-panel studio-voices">
     <h2>Listening Studio voices</h2>
-    <p className="field-hint">Natural voices made on this computer by PinPlay’s Listening Studio. Describe a reader or pick one from the voice library, approve the voice sample, then every sentence is read in that voice, its words checked, and you adjust the phrase splits by ear.</p>
+    <p className="field-hint">Natural voices made on this computer by PinPlay’s Listening Studio. Describe a reader, pick one from the voice library or find a real voice, approve the voice sample, then every sentence is read in that voice, its words checked, and you adjust the phrase splits by ear.</p>
 
     {!language && <p className="fetch-error" role="alert">Listening Studio voices speak {STUDIO_LANGUAGE_NAMES.join(', ')}. Choose another voice for this language.</p>}
     {reach === 'checking' && <p role="status">Looking for Listening Studio…</p>}
@@ -299,9 +311,11 @@ export default function ListeningStudioVoices({ plan, title, lang, mode, onCance
           <legend>The reader’s voice</legend>
           <div className="studio-choice" role="radiogroup" aria-label="Voice source">
             <label><input type="radio" name="voice-source" checked={form.source === 'design'} onChange={() => edit({ source: 'design' })} /> Describe a voice</label>
-            <label><input type="radio" name="voice-source" checked={form.source === 'library'} disabled={!library.length} onChange={() => edit({ source: 'library', libraryVoice: form.libraryVoice || library[0]?.id || '' })} /> From the voice library{!library.length && ' (empty)'}</label>
+            <label><input type="radio" name="voice-source" checked={form.source === 'library'} disabled={!library.length} onChange={() => edit({ source: 'library', libraryVoice: form.libraryVoice || library[0]?.id || '' })} /> From the voice library ({library.length ? `${library.length} voice${library.length === 1 ? '' : 's'}` : 'empty'})</label>
+            <label><input type="radio" name="voice-source" checked={form.source === 'find'} onChange={() => edit({ source: 'find' })} /> 🌍 Find a real voice (readers from open recordings)</label>
           </div>
-          {form.source === 'design' ? <>
+          {form.source === 'find' ? <StudioVoiceFinder lang={lang} library={library} onUse={chooseFoundVoice} />
+          : form.source === 'design' ? <>
             <label className="field-label">Description
               <textarea rows={3} value={form.description} maxLength={400} onChange={(e) => edit({ description: e.target.value })} />
             </label>
@@ -319,14 +333,14 @@ export default function ListeningStudioVoices({ plan, title, lang, mode, onCance
                 {library.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
               </select>
             </label>
-            {libraryVoice && <p className="field-hint">{libraryVoice.seconds ? `${libraryVoice.seconds} s sample` : 'Sample'}{libraryVoice.credit ? ` · ${libraryVoice.credit}` : ''}. A library voice is always a fixed voice. Add voices in Listening Studio (📚 Voice library).</p>}
+            {libraryVoice && <p className="field-hint">{libraryVoice.seconds ? `${libraryVoice.seconds} s sample` : 'Sample'}{libraryVoice.credit ? ` · ${libraryVoice.credit}` : ''}. A library voice is always a fixed voice. Find more with 🌍 Find a real voice, or add your own in Listening Studio (📚 Voice library).</p>}
             <button type="button" className="btn-ghost btn-small" disabled={!form.libraryVoice || busy}
               onClick={() => run((signal) => play(`library/${form.libraryVoice}/audio`, libraryVoice?.name || 'Library voice', signal))}>▶ Listen to this voice</button>
           </>}
           <label className="edit-check"><input type="checkbox" checked={form.check} onChange={(e) => edit({ check: e.target.checked })} /> Check every sentence’s words (and try once more if they differ)</label>
-          <p className="field-hint">Speed: these voices read at their own pace, so the voice speed setting does not apply. Ask for the pace in the description{form.mode === 'acted' ? ' or the delivery note' : ''}.</p>
+          <p className="field-hint">Speed: these voices read at their own pace, so the voice speed setting does not apply.{form.source === 'design' ? ` Ask for the pace in the description${form.mode === 'acted' ? ' or the delivery note' : ''}.` : ' A library or found voice keeps its reader’s own pace (Find a real voice can filter by pace).'}</p>
           <div className="edit-actions" style={{ justifyContent: 'flex-start' }}>
-            <button type="button" className="btn-primary" disabled={busy || !language} onClick={() => makeVoice()}>
+            <button type="button" className="btn-primary" disabled={busy || !language || form.source === 'find'} onClick={() => makeVoice()}>
               {id ? 'Make the voice again' : 'Make the voice sample'}</button>
             {id && formTouched && <button type="button" className="btn-ghost btn-small" onClick={() => { setFormTouched(false); setForm(formFromRecording(data?.recording, lang)); }}>Undo changes</button>}
             {id && state?.stage === 'approved' && <button type="button" className="btn-ghost btn-small" onClick={() => setShowVoice(false)}>Keep the current voice</button>}

@@ -35,3 +35,6 @@ cloudflare/secrets.local.json
 *.njsproj
 *.sln
 *.sw?
+
+# start_studio.bat remembers where PinPlay is on this computer.
+pinplay-folder.txt

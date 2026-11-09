@@ -66,10 +66,13 @@ test('every route a dictation needs passes; audio comes back as bytes', async ()
   const id = 'abc123def456';
   for (const [method, path] of [['GET', 'status'], ['GET', 'library'], ['GET', 'library/4a334378fa22/audio'],
     ['POST', 'library/from-recording'], ['GET', `recordings/${id}`], ['PUT', `recordings/${id}`],
-    ['POST', `recordings/${id}/make`], ['POST', 'stop']]) {
+    ['POST', `recordings/${id}/make`], ['POST', 'stop'],
+    ['GET', 'catalog'], ['GET', 'catalog/lt-1034/audio'], ['GET', "catalog/saa-sa'a1/audio"], ['GET', 'catalog/saa-sa%27a1/audio'],
+    ['POST', 'catalog/cml-1649/add']]) {
     const res = await call(`/api/listening-studio/${path}`, { method, headers: method === 'GET' ? {} : json, body: method === 'GET' ? undefined : '{}' });
     assert.equal(res.status, 200, `${method} ${path}`);
   }
+  assert.equal(JSON.parse((await call("/api/listening-studio/catalog/saa-sa'a1/audio")).body).url, "/api/catalog/saa-sa'a1/audio");
   const wav = await call(`/api/listening-studio/recordings/${id}/audio/lines/0123abcd.wav`, { headers: sameSite });
   assert.equal(wav.status, 200);
   assert.equal(wav.headers['content-type'], 'audio/wav');
@@ -84,7 +87,10 @@ test('anything else in the studio stays out of reach', async () => {
   seen.length = 0;
   for (const [method, path] of [['DELETE', 'recordings/abc123def456'], ['POST', 'quit'], ['POST', 'library'],
     ['GET', 'phone'], ['POST', 'conversations'], ['GET', 'recordings'], ['GET', 'recordings/abc123def456/audio/out/x.mp3'],
-    ['GET', 'recordings/../quit'], ['GET', 'recordings/ABC/audio/lines/x.wav'], ['GET', 'status/extra']]) {
+    ['GET', 'recordings/../quit'], ['GET', 'recordings/ABC/audio/lines/x.wav'], ['GET', 'status/extra'],
+    ['DELETE', 'library/4a334378fa22'], ['PUT', 'library/4a334378fa22'], ['GET', 'catalog/lt-1034/add'],
+    ['POST', 'catalog/lt-1034/audio'], ['GET', 'catalog/lt-1034'], ['GET', 'catalog/../quit'], ['GET', 'catalog/lt%2F..%2Fx/audio'],
+    ['GET', 'catalog/-x/audio'], ['POST', 'catalog']]) {
     // Node's client sends a DELETE body unframed: the server would read it as the next request.
     const bodyless = method === 'GET' || method === 'DELETE';
     const res = await call(`/api/listening-studio/${path}`, { method, headers: bodyless ? {} : json, body: bodyless ? undefined : '{}' });

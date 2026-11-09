@@ -11,18 +11,26 @@
 //     this computer (Render, a LAN neighbour and DNS rebinding get a 404);
 //   - same-origin only: a page on another site can't drive it;
 //   - writes must be JSON, so a cross-site form can't post here either;
-//   - an allow-list of the routes a dictation needs. Deleting recordings,
-//     the library's uploads, the phone import and Quit stay in the studio.
+//   - an allow-list of the routes a dictation needs (including 🌍 Find a
+//     voice, which only adds to the library). Deleting recordings or library
+//     voices, the library's uploads, the phone import and Quit stay in the
+//     studio.
 import http from 'node:http';
 
 const UPSTREAM = new URL(process.env.LISTENING_STUDIO_URL || 'http://127.0.0.1:8790/');
 export const PREFIX = '/api/listening-studio/';
 const ID = '[a-z0-9]{8,32}';
+// Catalog voices: "lt-1034", "cml-1649", "saa-sa'a1" (the quote may arrive as %27).
+const VOICE_KEY = "[a-z]{1,8}-(?:[\\w.-]|'|%27){1,64}";
 const ROUTES = [
   ['GET', /^status$/],
   ['GET', /^library$/],
   ['GET', new RegExp(`^library/${ID}/audio$`)],
   ['POST', /^library\/from-recording$/],
+  // 🌍 Find a voice: the list, a voice's sample, and adding it to the library.
+  ['GET', /^catalog$/],
+  ['GET', new RegExp(`^catalog/${VOICE_KEY}/audio$`)],
+  ['POST', new RegExp(`^catalog/${VOICE_KEY}/add$`)],
   ['POST', /^recordings$/],
   ['GET', new RegExp(`^recordings/${ID}$`)],
   ['PUT', new RegExp(`^recordings/${ID}$`)],
@@ -31,6 +39,12 @@ const ROUTES = [
   ['POST', /^stop$/],
 ];
 const MAX_BODY = 1024 * 1024;
+// A catalog voice's clips are fetched from Hugging Face (with retries), and a
+// voice without a transcript has its words written down by Whisper (up to
+// 10 minutes in the studio): those may stay silent for a long while.
+const SLOW_ROUTE = /^catalog\/.+\/(audio|add)$/;
+const TIMEOUT = 30 * 1000;
+const SLOW_TIMEOUT = 11 * 60 * 1000;
 const LOOPBACK_ADDRESS = /^(?:127(?:\.\d{1,3}){3}|::1|::ffff:127(?:\.\d{1,3}){3})$/;
 const LOOPBACK_HOST = /^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?$/i;
 
@@ -89,7 +103,7 @@ export async function handleListeningStudioRequest(req, res) {
       method: req.method,
       // No Origin, cookies or anything else from the browser.
       headers: req.method === 'GET' ? {} : { 'Content-Type': 'application/json', 'Content-Length': body.length },
-      timeout: 30000,
+      timeout: SLOW_ROUTE.test(route) ? SLOW_TIMEOUT : TIMEOUT,
     }, (answer) => {
       const headers = { 'Cache-Control': 'no-store' };
       for (const name of ['content-type', 'content-length']) if (answer.headers[name]) headers[name] = answer.headers[name];

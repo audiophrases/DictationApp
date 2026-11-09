@@ -35,11 +35,22 @@ the editable waveform and split controls last for the current studio session.
 **Listening Studio voices** (Choose voice and review splits) reads the
 dictation with PinPlay's Listening Studio: natural Qwen3 voices made on the
 teacher's own PC. It works in the local teacher copy only: double-click
-**start_studio.bat**, which starts Listening Studio (found in `..\pinplay`, or
-set `PINPLAY_DIR`) in a minimised window and opens the teacher page at
-`http://127.0.0.1:4173/create/`. As in the studio, describe the reader (gender,
-age, accent, pace; the default asks for the app's dialect) or choose a voice
-from its library, choose **Fixed voice** (same reader in every sentence) or
+**start_studio.bat**, which starts Listening Studio in a minimised window and
+opens the teacher page at `http://127.0.0.1:4173/create/`. PinPlay can be in
+any folder or drive: the launcher finds it through PinPlay's desktop icon, next
+to this folder, or in a `pinplay` folder in the user's folders or at the top of
+any drive; otherwise it asks once (drag the PinPlay folder onto its window) and
+remembers the answer in `pinplay-folder.txt`. `PINPLAY_DIR` overrides all of
+that, and `start_studio.bat --where` only says where PinPlay was found.
+As in the studio, describe the reader (gender, age, accent, pace; the default
+asks for the app's dialect), choose a voice from its library, or **🌍 Find a
+real voice** among the studio's 1,500 ready-made voices: native readers
+(LibriVox audiobooks: English with American, British, Canadian and other
+accents, and French) and speakers of 200 first languages reading English
+(Speech Accent Archive). It opens on readers of the dictation's language, or on
+speakers whose first language it is; **▶ Listen** fetches a voice from the
+internet the first time (up to a minute), and **Use this voice** adds it to the
+studio's library with its credit and chooses it. Then choose **Fixed voice** (same reader in every sentence) or
 **Acted** (follows a delivery note), and approve the voice sample (**↻ Another
 sample**, **Save voice to library**) before every sentence is made. Each
 sentence's words are checked with Whisper and retried once if they differ;
@@ -47,7 +58,8 @@ sentence's words are checked with Whisper and retried once if they differ;
 are said in the same voice. Then review the splits as above. Leaving and coming
 back finds the same studio recording, and only what changed is made again.
 English, French, Spanish, German, Italian, Portuguese and Russian only; the
-voice speed setting doesn't apply (ask for the pace in the description). The
+voice speed setting doesn't apply (ask for the pace in the description, or
+filter found voices by pace). The
 page talks to the studio through the local server (`/api/listening-studio/*`,
 `server/listeningStudio.js`): loopback and same-origin only, and limited to the
 routes a dictation needs, so nothing in PinPlay changes and deleting or quitting
@@ -109,8 +121,8 @@ voices, and opens your browser at `http://127.0.0.1:4173`. Keep the console
 window open while using the app; close it to stop.
 
 **Teacher, with Listening Studio voices:** double-click `start_studio.bat`.
-It starts PinPlay's Listening Studio if this computer has it (first time: its
-own launcher sets it up), then does what `start_local.bat` does and opens the
+It starts PinPlay's Listening Studio if this computer has it, wherever PinPlay
+is (first time: its own launcher sets it up), then does what `start_local.bat` does and opens the
 teacher page (`/create/`). The Listening Studio window is minimised; close it
 to free the voice model's memory.
 

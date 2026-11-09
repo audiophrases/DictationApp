@@ -159,6 +159,77 @@ export function describeRecording(id, data, status) {
   return { ...base, phase: 'idle', text: 'Not made yet.' };
 }
 
+// ---------------------------------------------------------------- 🌍 find a voice
+// Real voices from open recordings (the studio's catalog/voices.json, the
+// same list as its own "Find a voice"). Adding one copies its sample into
+// the studio's voice library, with its credit, where any dictation can use it.
+export const READER_SOURCES = ['librittsr', 'cmltts', 'mls'];
+const PITCH_GROUP = { 'very low': 'low', low: 'low', 'slightly low': 'low', moderate: 'moderate', 'slightly high': 'high', high: 'high', 'very high': 'high' };
+const PACE_GROUP = { 'very slow': 'slow', slow: 'slow', 'slightly slow': 'slow', moderate: 'moderate', 'slightly fast': 'fast', fast: 'fast', 'very fast': 'fast' };
+const ACCENT_NAMES = { English: 'English (England)', 'New zealand': 'New Zealand', Unidentified: 'Not labelled' };
+export const accentName = (accent) => ACCENT_NAMES[accent] || accent;
+const isReader = (v) => READER_SOURCES.includes(v.source);
+
+// Where the finder opens for this dictation: native readers when the catalog
+// has them in its language (English, French), else speakers whose first
+// language it is (they read an English paragraph).
+export function finderStart(catalog, lang) {
+  const language = studioLanguage(lang) || 'English';
+  const readers = (catalog?.voices || []).filter((v) => isReader(v) && v.language === language);
+  const accent = language === 'English' && readers.some((v) => v.accent === 'American') ? 'American' : '';
+  return {
+    tab: readers.length ? 'readers' : 'accents',
+    f: { readerLanguage: readers.length ? language : 'English', accent, gender: '', pitch: '', manner: 'calm', pace: '',
+      language, age: '' },
+  };
+}
+
+// [value, count] pairs, the most common first.
+export function counted(voices, field) {
+  const counts = {};
+  voices.forEach((v) => { if (v[field]) counts[v[field]] = (counts[v[field]] || 0) + 1; });
+  return Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
+export function finderVoices(catalog, tab) {
+  return (catalog?.voices || []).filter((v) => (tab === 'readers' ? isReader(v) : v.source === 'accentarchive'));
+}
+
+export function finderMatches(catalog, tab, f) {
+  const sel = (value, wanted) => !wanted || value === wanted;
+  if (tab === 'readers') {
+    const rank = { calm: 0, mixed: 1, lively: 2 };
+    return finderVoices(catalog, tab).filter((v) => v.language === f.readerLanguage && sel(v.accent, f.accent)
+        && sel(v.gender, f.gender) && sel(PITCH_GROUP[v.pitch], f.pitch) && sel(PACE_GROUP[v.pace], f.pace)
+        && (f.manner === 'any' || v.manner === 'calm' || (f.manner === 'mixed' && v.manner === 'mixed')))
+      .sort((a, b) => (rank[a.manner] ?? 3) - (rank[b.manner] ?? 3) || String(a.gender).localeCompare(String(b.gender)) || a.hz - b.hz);
+  }
+  const ageOk = (age) => !f.age || (age && (f.age === 'young' ? age < 30 : f.age === 'middle' ? age >= 30 && age < 50 : age >= 50));
+  return finderVoices(catalog, tab).filter((v) => sel(v.language, f.language) && sel(v.gender, f.gender) && ageOk(v.age))
+    .sort((a, b) => (a.gender ? 0 : 1) - (b.gender ? 0 : 1) || (a.age || 99) - (b.age || 99));
+}
+
+export function finderLabel(v) {
+  const who = { female: 'Woman', male: 'Man' }[v.gender] || 'Speaker';
+  if (isReader(v)) {
+    const accent = !v.accent ? v.language : v.accent === 'Unidentified' ? `${v.language}, accent not labelled` : `${accentName(v.accent)} accent`;
+    return { title: `${who} · ${accent}`, detail: `${v.pitch} voice · ${v.manner} · ${v.pace} pace · reader ${v.speaker}` };
+  }
+  return { title: `${who}${v.age ? `, ${v.age}` : ''} · first language ${v.language}`,
+    detail: `${v.birthplace ? `born in ${v.birthplace} · ` : ''}${v.speaker}` };
+}
+
+// Its name in the voice library (as the studio's own finder names it).
+export function finderName(v) {
+  const who = { female: 'woman', male: 'man' }[v.gender] || 'speaker';
+  const people = !v.accent || v.accent === 'Unidentified' ? v.language : v.accent === 'New zealand' ? 'New Zealand' : v.accent;
+  return (isReader(v)
+    ? `${people} ${who}, ${v.pitch}, ${v.manner} (reader ${v.speaker})`
+    : `${v.language} accent, ${who}${v.age ? ` ${v.age}` : ''} (${v.speaker})`).slice(0, 80);
+}
+
+export const catalogPath = (key, action) => `catalog/${encodeURIComponent(key)}/${action}`;
+
 // "Same dictation" = same language, mode and sentences: the page finds its
 // studio recording again after Back, a reload or another visit.
 export function planKey(plan, lang, mode) {

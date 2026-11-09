@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
+import path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import {
-  NARRATOR, cueLines, defaultDescription, describeRecording, dictationScript, finishedLines, formFromRecording,
+  NARRATOR, catalogPath, counted, cueLines, defaultDescription, describeRecording, dictationScript, finderLabel,
+  finderMatches, finderName, finderStart, finishedLines, formFromRecording,
   lineId, matchesDictation, planKey, progressText, studioLanguage, studioSettings,
 } from './listeningStudio.js';
 
@@ -41,9 +44,11 @@ test('one narrator line per sentence, then the cues', () => {
 
 // The studio's page re-reads the text with PinPlay's own parser: it must give
 // back the same script the studio is asked to voice.
-const parserPath = new URL('../../../pinplay/listening-script.js', import.meta.url);
-test('the script text parses back to the same script in PinPlay', { skip: !fs.existsSync(parserPath) && 'PinPlay not found next to this repo' }, () => {
-  const { parseListeningScript, listeningScriptNeedsSetup, LISTENING_SCRIPT_LANGUAGES } = createRequire(import.meta.url)(parserPath.pathname.replace(/^\/([A-Za-z]:)/u, '$1'));
+// PinPlay next to this repo, or wherever PINPLAY_DIR points.
+const pinplay = process.env.PINPLAY_DIR || fileURLToPath(new URL('../../../pinplay', import.meta.url));
+const parserPath = path.join(pinplay, 'listening-script.js');
+test('the script text parses back to the same script in PinPlay', { skip: !fs.existsSync(parserPath) && 'PinPlay not found (set PINPLAY_DIR)' }, () => {
+  const { parseListeningScript, listeningScriptNeedsSetup, LISTENING_SCRIPT_LANGUAGES } = createRequire(import.meta.url)(parserPath);
   for (const direction of ['', 'reading a dictation aloud: slow, clear']) {
     const tricky = [...plan, { sentence: 'Mia: [pause] VOICE # --- not a header.' }, { sentence: '"Wait," he said (quietly).' }];
     const { script, text } = dictationScript({ plan: tricky, lang: 'fr-FR', title: 'Dictée', description: 'Une voix calme.', direction, cues: ['Point.'] });
@@ -117,4 +122,67 @@ test('the same dictation finds the same studio recording', () => {
   assert.equal(planKey(plan, 'en-US', 'typing'), planKey(plan.map((p) => ({ ...p, sentence: ` ${p.sentence} ` })), 'en-US', 'typing'));
   assert.notEqual(planKey(plan, 'en-US', 'typing'), planKey(plan, 'en-US', 'notebook'));
   assert.notEqual(planKey(plan, 'en-US', 'typing'), planKey(plan.slice(1), 'en-US', 'typing'));
+});
+
+// 🌍 Find a voice: the studio's catalog, filtered as its own finder does.
+const reader = (key, extra) => ({ key, source: 'librittsr', speaker: key.slice(3), language: 'English', gender: 'female', accent: 'American',
+  pitch: 'moderate', pace: 'moderate', manner: 'calm', hz: 200, text: 'Some words.', ...extra });
+const catalog = { voices: [
+  reader('lt-1', { hz: 230 }),
+  reader('lt-2', { gender: 'male', hz: 110, pitch: 'slightly low' }),
+  reader('lt-3', { manner: 'lively' }),
+  reader('lt-4', { accent: 'English', pace: 'very fast' }),
+  reader('lt-5', { accent: 'Unidentified', manner: 'mixed' }),
+  { key: 'cml-9', source: 'cmltts', speaker: '9', language: 'French', gender: 'female', accent: '', pitch: 'high', pace: 'slow', manner: 'calm', hz: 220, text: 'Des mots.' },
+  { key: 'saa-spanish1', source: 'accentarchive', speaker: 'spanish1', language: 'Spanish', gender: 'male', age: 41, birthplace: 'madrid, spain' },
+  { key: 'saa-spanish2', source: 'accentarchive', speaker: 'spanish2', language: 'Spanish', gender: 'female', age: 23 },
+  { key: "saa-sa'a1", source: 'accentarchive', speaker: "sa'a1", language: "Sa'A", gender: '', age: null },
+] };
+
+test('the finder opens on native readers of the dictation’s language, else on its accent', () => {
+  assert.deepEqual(finderStart(catalog, 'en-US'), { tab: 'readers',
+    f: { readerLanguage: 'English', accent: 'American', gender: '', pitch: '', manner: 'calm', pace: '', language: 'English', age: '' } });
+  const fr = finderStart(catalog, 'fr-FR');
+  assert.equal(fr.tab, 'readers');
+  assert.equal(fr.f.readerLanguage, 'French');
+  assert.equal(fr.f.accent, '');
+  // No Spanish readers: Spanish speakers reading English.
+  const es = finderStart(catalog, 'es-ES');
+  assert.equal(es.tab, 'accents');
+  assert.equal(es.f.language, 'Spanish');
+  assert.deepEqual(finderMatches(catalog, es.tab, es.f).map((v) => v.key), ['saa-spanish2', 'saa-spanish1']);
+});
+
+test('finder filters: calm first, pitch and pace in three groups, age bands', () => {
+  const f = finderStart(catalog, 'en-US').f;
+  assert.deepEqual(finderMatches(catalog, 'readers', f).map((v) => v.key), ['lt-1', 'lt-2']);
+  assert.deepEqual(finderMatches(catalog, 'readers', { ...f, accent: '', manner: 'mixed' }).map((v) => v.key), ['lt-4', 'lt-1', 'lt-2', 'lt-5']);
+  assert.deepEqual(finderMatches(catalog, 'readers', { ...f, accent: '', manner: 'any' }).map((v) => v.key).sort(), ['lt-1', 'lt-2', 'lt-3', 'lt-4', 'lt-5']);
+  assert.deepEqual(finderMatches(catalog, 'readers', { ...f, pitch: 'low' }).map((v) => v.key), ['lt-2']);
+  assert.deepEqual(finderMatches(catalog, 'readers', { ...f, accent: '', pace: 'fast' }).map((v) => v.key), ['lt-4']);
+  assert.deepEqual(finderMatches(catalog, 'accents', { language: 'Spanish', gender: '', age: 'middle' }).map((v) => v.key), ['saa-spanish1']);
+  assert.deepEqual(counted(catalog.voices.filter((v) => v.source === 'librittsr'), 'accent'),
+    [['American', 3], ['English', 1], ['Unidentified', 1]]);
+});
+
+test('finder labels and library names read naturally; odd keys stay in the path', () => {
+  assert.deepEqual(finderLabel(catalog.voices[3]), { title: 'Woman · English (England) accent', detail: 'moderate voice · calm · very fast pace · reader 4' });
+  assert.equal(finderLabel(catalog.voices[4]).title, 'Woman · English, accent not labelled');
+  assert.equal(finderLabel(catalog.voices[5]).title, 'Woman · French');
+  assert.equal(finderLabel(catalog.voices[6]).title, 'Man, 41 · first language Spanish');
+  assert.equal(finderName(catalog.voices[1]), 'American man, slightly low, calm (reader 2)');
+  assert.equal(finderName(catalog.voices[3]), 'English woman, moderate, calm (reader 4)');
+  assert.equal(finderName(catalog.voices[6]), 'Spanish accent, man 41 (spanish1)');
+  assert.equal(catalogPath("saa-sa'a1", 'add'), "catalog/saa-sa'a1/add");
+});
+
+// The real catalog, when PinPlay is here: every dictation language finds voices.
+const catalogFile = path.join(pinplay, 'listening-studio', 'catalog', 'voices.json');
+test('the studio’s catalog has voices for every dictation language', { skip: !fs.existsSync(catalogFile) && 'PinPlay not found (set PINPLAY_DIR)' }, () => {
+  const real = JSON.parse(fs.readFileSync(catalogFile, 'utf8'));
+  for (const code of ['en-US', 'es-ES', 'fr-FR', 'de-DE', 'it-IT', 'pt-PT', 'ru-RU']) {
+    const { tab, f } = finderStart(real, code);
+    assert.ok(finderMatches(real, tab, f).length >= 5, code);
+  }
+  assert.ok(real.voices.every((v) => /^[a-z]{1,8}-(?:[\w.-]|'){1,64}$/u.test(v.key)), 'catalog keys fit the bridge');
 });

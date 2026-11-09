@@ -12,7 +12,7 @@ import { recordSentences, rerecordSegments, uploadPreparedClips } from '../../li
 import { notebookPlan } from '../../lib/notebook';
 import { deliveryFor, dictationUnit } from '../../lib/delivery';
 import AudioSplitStudio from '../../components/AudioSplitStudio';
-import { segmentGroups } from '../../lib/notebookShared';
+import { segmentGroups, sameSegmentPlan } from '../../lib/notebookShared';
 import MarkingRules from '../../components/MarkingRules';
 
 const toDateInput = (ms) => {
@@ -175,6 +175,7 @@ function RecordingsSection({ code, data, onSaved, requireServer }) {
   const { record, sentences } = data;
   const unit = dictationUnit(record);
   const [studio, setStudio] = useState(false);
+  const savedStudioSegments = useRef(null);
   const studioPlan = useMemo(() => segmentGroups(sentences).map((group) => ({
     sentence: group.sentence, segments: sentences.slice(group.start, group.start + group.count),
   })), [sentences]);
@@ -240,13 +241,24 @@ function RecordingsSection({ code, data, onSaved, requireServer }) {
   }
 
   if (studio) return <AudioSplitStudio plan={studioPlan} lang={record.settings.lang} rate={rate} mode={record.mode}
-    acceptLabel="Save reviewed recordings" onCancel={() => setStudio(false)}
+    segmentChangeNotice="I understand that moving words changes the expected answers and resets student attempts, scores and released corrections for this assignment."
+    acceptLabel="Save reviewed recordings" onCancel={() => { setStudio(false); savedStudioSegments.current = null; onSaved(); }}
     onAccept={async (prepared) => {
-      const failed = await uploadPreparedClips(code, sentences, prepared);
+      const changed = !sameSegmentPlan(sentences, prepared.segments);
+      let stored = savedStudioSegments.current || sentences;
+      if (!sameSegmentPlan(stored, prepared.segments)) {
+        const result = await updateAssignmentContent(code, {
+          text: data.text, segments: prepared.segments, lang: record.settings.lang, rate,
+        });
+        stored = result.sentences;
+        savedStudioSegments.current = stored;
+      }
+      const failed = await uploadPreparedClips(code, stored, prepared);
       if (failed.length) throw new Error(`Recordings ${failed.map((i) => i + 1).join(', ')} could not be saved. Keep this studio open and retry saving. Other recordings were saved.`);
       if (rate !== record.settings?.rate) await updateAssignmentSettings(code, { rate });
-      if (record.status === 'draft') await publishAssignment(code);
+      if (changed || savedStudioSegments.current || record.status === 'draft') await publishAssignment(code);
       setStudio(false);
+      savedStudioSegments.current = null;
       setDone(new Set(sentences.map((_, i) => i)));
       onSaved();
     }} />;

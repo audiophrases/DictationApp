@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { build } from 'esbuild';
-import { sentenceCuts, estimatedCuts, validateCuts } from './audioSplits.js';
+import { sentenceCuts, estimatedCuts, validateCuts, moveSplitWord } from './audioSplits.js';
 
 const boundaries = [
   { text: 'Moving', start: 0.1, end: 0.46 },
@@ -84,7 +84,7 @@ test('punctuation is a separate recording appended only to the last clip', async
 
 const assignmentBundle = await build({ entryPoints: ['src/lib/buildAssignment.js'], bundle: true, write: false,
   platform: 'node', format: 'esm', define: { 'import.meta.env': '{}' }, logLevel: 'silent' });
-const { uploadPreparedClips, rerecordSegments } = await import(`data:text/javascript;base64,${Buffer.from(assignmentBundle.outputFiles[0].text).toString('base64')}`);
+const { uploadPreparedClips, rerecordSegments, recordSentences } = await import(`data:text/javascript;base64,${Buffer.from(assignmentBundle.outputFiles[0].text).toString('base64')}`);
 
 test('upload retries preserve reviewed bytes and never call the voice service', async (t) => {
   const clips = [new Blob(['first'], { type: 'audio/wav' }), new Blob(['second'], { type: 'audio/wav' })];
@@ -119,4 +119,47 @@ test('re-recording one stored phrase synthesizes its entire original sentence', 
   assert.equal(calls.length, 2);
   assert.equal(calls[0].url.searchParams.get('text'), 'Moving abroad helped him.');
   assert.ok(calls[1].url.pathname.endsWith('/audio/1'));
+});
+
+
+test('moving words changes the text and audio boundary without changing the sentence', () => {
+  const recording = { segments: ['Moving abroad', 'helped him.'], boundaries, buffer,
+    cuts: [0, 0.90625, 1.5], warning: '' };
+  const moved = moveSplitWord(recording, 1, -1);
+  assert.deepEqual(moved.segments, ['Moving', 'abroad helped him.']);
+  assert.equal(moved.cuts[1], (0.46 + 0.475) / 2);
+  assert.equal(moved.buffer, recording.buffer);
+  const twice = moveSplitWord(moveSplitWord(moved, 1, 1), 1, 1);
+  assert.deepEqual(twice.segments, ['Moving abroad helped', 'him.']);
+  assert.equal(twice.segments.join(' '), recording.segments.join(' '));
+  assert.throws(() => moveSplitWord(twice, 1, 1));
+  assert.throws(() => moveSplitWord(moved, 1, -1));
+  assert.deepEqual(recording.segments, ['Moving abroad', 'helped him.']);
+});
+
+test('word moves with uncertain metadata require review', () => {
+  const moved = moveSplitWord({ segments: ['Moving abroad', 'helped him.'], boundaries: [], buffer,
+    cuts: [0, 0.9, 1.5], warning: '' }, 1, -1);
+  assert.equal(moved.checked, false);
+  assert.ok(moved.warning);
+  validateCuts(moved.cuts, 2, buffer.duration);
+});
+
+test('custom reviewed segmentation uploads without reverting to automatic phrases', async (t) => {
+  const segments = ['Moving', 'abroad helped him.'];
+  const prepared = { segments, clips: [new Blob(['one']), new Blob(['two'])] };
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, json: async () => ({}) };
+  });
+  assert.deepEqual(await recordSentences('test', segments, {
+    text: 'Moving abroad helped him.', lang: 'en-US', rate: 1, delivery: 'phrases', prepared,
+  }), []);
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((call) => call.options.method === 'PUT'));
+  await assert.rejects(recordSentences('test', segments, {
+    text: 'A different passage.', lang: 'en-US', rate: 1, prepared,
+  }));
+  assert.equal(calls.length, 2);
 });

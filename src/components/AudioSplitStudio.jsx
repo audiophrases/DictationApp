@@ -1,3 +1,5 @@
+import { moveSplitWord } from '../lib/audioSplits';
+import { sameSegmentPlan } from '../lib/notebookShared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { prepareSentenceRecording, recordingClips } from '../lib/notebookAudio';
 import { wavClip } from '../lib/notebookWav';
@@ -24,17 +26,19 @@ function Waveform({ buffer, cuts }) {
   </svg>;
 }
 
-export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onAccept, acceptLabel = 'Use audio and create assignment' }) {
+export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onAccept, acceptLabel = 'Use audio and create assignment', segmentChangeNotice = '' }) {
   const [recordings, setRecordings] = useState([]);
   const [index, setIndex] = useState(0);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
+  const [confirmedChange, setConfirmedChange] = useState(false);
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState(null);
   const [url, setUrl] = useState('');
   const player = useRef(null);
   const recording = recordings[index];
+  const changedSegments = recordings.some((r) => !sameSegmentPlan(r.originalSegments, r.segments));
 
   useEffect(() => {
     const controller = new AbortController();
@@ -49,7 +53,7 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
             punctuation: mode === 'notebook', allowEstimated: true, signal: controller.signal,
           });
           if (controller.signal.aborted) return;
-          setRecordings((items) => [...items, { ...result, originalCuts: result.cuts.slice(), checked: !result.warning }]);
+          setRecordings((items) => [...items, { ...result, originalCuts: result.cuts.slice(), originalSegments: result.segments.slice(), originalWarning: result.warning, checked: !result.warning }]);
         }
       } catch (err) { if (!controller.signal.aborted) setError(err.message); }
       finally {
@@ -70,12 +74,17 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
   function stop() { player.current?.pause(); setPreview(null); }
   function update(changes) {
     stop();
+    setConfirmedChange(false);
     setRecordings((items) => items.map((item, i) => i === index ? { ...item, ...changes } : item));
   }
   function moveCut(cutIndex, value) {
     const cuts = recording.cuts.slice();
     cuts[cutIndex] = Math.max(cuts[cutIndex - 1] + 0.01, Math.min(cuts[cutIndex + 1] - 0.01, value));
     update({ cuts, checked: !recording.warning });
+  }
+  function moveWord(splitIndex, direction) {
+    try { update(moveSplitWord(recording, splitIndex, direction)); setError(''); }
+    catch (err) { setError(err.message); }
   }
   async function accept() {
     setSaving(true); setError(''); stop();
@@ -86,7 +95,7 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
 
   return <section className="glass-panel" style={{ maxWidth: 900, margin: '1.5rem auto', padding: '1.5rem' }}>
     <h2>Dictation splitting studio</h2>
-    <p className="field-hint">Listen to the full sentence, then check its phrases. Move a split if a word sounds clipped. Changes use the same recording and preserve its intonation.</p>
+    <p className="field-hint">Listen to the full sentence, then check its phrases. The automatic phrases are a starting point. Move words to the previous or next phrase, then fine-tune the timing if needed. Changes use the same recording and preserve its intonation.</p>
     <p role="status">{loading ? `Generating full sentences: ${recordings.length} of ${plan.length}` : `${recordings.length} of ${plan.length} sentences ready`}</p>
     {error && <p className="fetch-error" role="alert">{error}</p>}
     {!loading && recordings.length !== plan.length && <button className="btn-primary" onClick={() => setAttempt((n) => n + 1)}>Retry generation</button>}
@@ -106,6 +115,12 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
             <span style={{ flex: 1 }}>{segment}</span>
             <button className="btn-ghost btn-small" disabled={saving} onClick={() => setPreview(recordingClips(recording)[i])}>Listen to phrase {i + 1}</button>
           </div>
+          {i < recording.segments.length - 1 && <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+            <button className="btn-ghost btn-small" disabled={saving || segment.trim().split(/\s+/u).length < 2}
+              onClick={() => moveWord(i + 1, -1)}>Move last word to next phrase →</button>
+            <button className="btn-ghost btn-small" disabled={saving || recording.segments[i + 1].trim().split(/\s+/u).length < 2}
+              onClick={() => moveWord(i + 1, 1)}>← Bring first word from next phrase</button>
+          </div>}
           {i < recording.segments.length - 1 && <label style={{ display: 'block', marginTop: '0.5rem' }}>
             Split {i + 1}: {recording.cuts[i + 1].toFixed(2)} s
             <input aria-label={`Split ${i + 1} time in seconds`} type="range" step="0.01"
@@ -115,16 +130,19 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
           </label>}
         </li>)}
       </ol>
-      {recording.segments.length > 1 && <button className="btn-ghost btn-small" disabled={saving} onClick={() => update({ cuts: recording.originalCuts.slice(), checked: !recording.warning })}>Reset sentence splits</button>}
+      {recording.segments.length > 1 && <button className="btn-ghost btn-small" disabled={saving} onClick={() => update({ cuts: recording.originalCuts.slice(), segments: recording.originalSegments.slice(), warning: recording.originalWarning, checked: !recording.originalWarning })}>Reset sentence splits</button>}
       {recording.warning && <div role="alert" style={{ margin: '1rem 0' }}>
         <p className="fetch-error">Estimated splits — {recording.warning}</p>
         <label><input type="checkbox" checked={recording.checked} disabled={saving} onChange={(e) => update({ checked: e.target.checked })} /> I listened to every phrase in this sentence and checked the splits.</label>
       </div>}
     </>}
     <p className="field-hint">Keep this page open until saving finishes. {mode === 'notebook' && 'The last phrase includes the spoken punctuation cue.'}</p>
+    {changedSegments && segmentChangeNotice && <label style={{ display: 'block', margin: '1rem 0' }}>
+      <input type="checkbox" checked={confirmedChange} disabled={saving} onChange={(e) => setConfirmedChange(e.target.checked)} /> {segmentChangeNotice}
+    </label>}
     <div className="edit-actions">
       <button className="btn-ghost" onClick={onCancel} disabled={saving}>Back</button>
-      <button className="btn-primary" onClick={accept} disabled={saving || loading || recordings.length !== plan.length || recordings.some((r) => !r.checked)}>
+      <button className="btn-primary" onClick={accept} disabled={saving || loading || (changedSegments && !!segmentChangeNotice && !confirmedChange) || recordings.length !== plan.length || recordings.some((r) => !r.checked)}>
         {saving ? 'Saving audio…' : acceptLabel}
       </button>
     </div>

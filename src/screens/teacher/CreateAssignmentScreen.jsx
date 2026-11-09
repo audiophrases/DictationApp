@@ -93,7 +93,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
         text: passage,
         mode,
         delivery,
-        segments,
+        segments: preparedAudio.current?.segments || segments,
         title,
         className,
         dueAt: endOfDay(due),

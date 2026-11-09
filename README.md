@@ -16,10 +16,14 @@ short phrases for notebooks.
 New assignments open the **Dictation splitting studio** before publishing. It
 records complete sentences, then uses word timings to suggest phrase cuts.
 Listen to the sentence or individual phrases, inspect the waveform, and adjust
-the split sliders before saving. Uncertain timing matches are flagged for manual
+the split sliders before saving. Use the word-move buttons at each boundary to
+move one or more words between neighbouring phrases; the audio cut follows the
+new wording. Reset restores the original phrases and timings. Uncertain timing matches are flagged for manual
 review. Upload retries reuse the reviewed audio. **Edit > Recordings > Open
 splitting studio** generates a new sentence recording plan for an existing
-assignment, preserving its text and student answers. Saved audio keeps the cuts;
+assignment. Timing-only edits preserve student answers. Moving words changes
+the expected answers, so saving requires confirmation that student attempts,
+scores and released corrections will be reset. Saved audio keeps the cuts;
 the editable waveform and split controls last for the current studio session.
 
 Teachers can enable **Allow students to slow playback** when creating an

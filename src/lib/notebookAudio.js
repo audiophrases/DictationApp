@@ -46,7 +46,7 @@ export async function prepareSentenceRecording(sentence, options) {
   }
   const label = options.punctuation === false ? '' : sentenceEndCue(sentence, lang);
   const cue = label ? await punctuationAudio(label, { ...options, cueCache: options.cueCache || new Map() }) : null;
-  return { sentence, segments, buffer, cuts, cue, warning };
+  return { sentence, segments, buffer, cuts, cue, warning, boundaries };
 }
 
 export function recordingClips(recording) {

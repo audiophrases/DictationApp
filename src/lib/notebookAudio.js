@@ -3,7 +3,7 @@ import { notebookPlan } from './notebook';
 import { sentenceEndCue } from './notebookShared';
 import { wavClip } from './notebookWav';
 import { deliveryFor } from './delivery';
-import { sentenceCuts, estimatedCuts, validateCuts, pauseCuts } from './audioSplits';
+import { sentenceCuts, estimatedCuts, validateCuts, pauseCuts, mergeAll } from './audioSplits';
 
 async function speak(text, { lang, rate, context, signal }) {
   const query = new URLSearchParams({ text, lang, rate });
@@ -53,6 +53,17 @@ export function recordingClips(recording) {
   const { buffer, cuts, segments, cue } = recording;
   validateCuts(cuts, segments.length, buffer.duration);
   return segments.map((_, i) => wavClip(buffer, cuts[i], cuts[i + 1], i === segments.length - 1 ? cue : null));
+}
+
+// Delivery controls what students hear, independently of the studio's splits.
+// Export a whole sentence directly from its reviewed buffer so internal cuts
+// add no silence, while keeping the trimmed ends and final punctuation cue.
+export function prepareReviewedAudio(recordings, delivery) {
+  const selected = delivery === 'sentences' ? recordings.map(mergeAll) : recordings;
+  return {
+    segments: selected.flatMap((recording) => recording.segments),
+    clips: selected.flatMap(recordingClips),
+  };
 }
 
 export async function prepareNotebookSentence(sentence, options) {

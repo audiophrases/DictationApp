@@ -9,7 +9,7 @@ import { studentLink } from '../../lib/appLinks';
 import AudioSplitStudio from '../../components/DictationAudioWorkflow';
 import MarkingRules from '../../components/MarkingRules';
 import { notebookPlan } from '../../lib/notebook';
-import { deliveryFor, dictationUnit, reviewedDelivery } from '../../lib/delivery';
+import { deliveryFor, dictationUnit } from '../../lib/delivery';
 
 // A date input gives a day, and homework is due at the end of that day rather
 // than at midnight as it starts.
@@ -112,10 +112,6 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
     setFailed([]);
     setError('');
     let createdCode = '';
-    // Phrases split in the splitting studio make this a phrase dictation.
-    const sentenceCount = plan.length;
-    const finalDelivery = reviewedDelivery(delivery, sentenceCount, preparedAudio.current?.segments);
-    if (finalDelivery !== delivery) setDelivery(finalDelivery);
     try {
       const reviewed = preparedAudio.current?.segments || segments;
       let newCode = draftCode;
@@ -123,14 +119,14 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
       if (draftCode) {
         // The draft already exists: give it the reviewed phrases if they
         // differ from what it stored (nobody has started it, nothing is lost).
-        if (finalDelivery !== delivery || !sameSegmentPlan(list, reviewed)) {
-          ({ sentences: list } = await updateAssignmentContent(draftCode, { text: passage, segments: reviewed, lang, rate, delivery: finalDelivery }));
+        if (!sameSegmentPlan(list, reviewed)) {
+          ({ sentences: list } = await updateAssignmentContent(draftCode, { text: passage, segments: reviewed, lang, rate, delivery }));
           draftSentences.current = list;
         }
         // Settings the teacher may have changed since the draft was made.
         await updateAssignmentSettings(draftCode, { title, className, dueAt: endOfDay(due), attemptsLimit, maxListens, feedbackMode, allowSlowdown, grading });
       } else {
-        ({ code: newCode, sentences: list } = await createAssignment({ ...fields(), delivery: finalDelivery, segments: reviewed }));
+        ({ code: newCode, sentences: list } = await createAssignment({ ...fields(), segments: reviewed }));
       }
       createdCode = newCode;
       setCode(newCode);
@@ -160,9 +156,8 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
     );
   }
 
-  if (phase === 'studio') return <AudioSplitStudio onSessionPassage={setPassage} passage={passage} title={title} requireServer={requireServer} plan={plan} lang={lang} rate={rate} mode={mode}
+  if (phase === 'studio') return <AudioSplitStudio onSessionPassage={setPassage} passage={passage} title={title} requireServer={requireServer} plan={plan} lang={lang} rate={rate} mode={mode} delivery={delivery}
     createDraft={createDraft} onSessionCreated={rememberSession} draftCode={draftCode} onFinishLater={onFinished}
-    splitNote={delivery === 'sentences' ? 'You split sentences into phrases, so this becomes a phrase dictation: students hear one phrase at a time (“Short phrases”).' : ''}
     onCancel={() => setPhase('form')}
     onAccept={async (prepared) => { preparedAudio.current = prepared; await handleCreate(); }} />;
 

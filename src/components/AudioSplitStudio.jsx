@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { mergeAll, mergeSplit, moveSplitWord, splitSegment, trimSilence } from '../lib/audioSplits';
 import { sameSegmentPlan } from '../lib/notebookShared';
-import { prepareSentenceRecording, recordingClips } from '../lib/notebookAudio';
+import { prepareSentenceRecording, prepareReviewedAudio, recordingClips } from '../lib/notebookAudio';
 import { wavClip } from '../lib/notebookWav';
 
 const wordsOf = (text) => text.trim().split(/\s+/u).filter(Boolean);
@@ -64,7 +64,7 @@ function Waveform({ buffer, cuts, disabled, onMove, onPlay }) {
   </div>;
 }
 
-export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onAccept, acceptLabel = 'Use audio and create assignment', segmentChangeNotice = '', initialRecordings = null, backLabel = 'Back', splitNote = '', planChanged = false }) {
+export default function AudioSplitStudio({ plan, lang, rate, mode, delivery = 'phrases', onCancel, onAccept, acceptLabel = 'Use audio and create assignment', segmentChangeNotice = '', initialRecordings = null, backLabel = 'Back', planChanged = false }) {
   const [recordings, setRecordings] = useState([]);
   const [index, setIndex] = useState(0);
   const [error, setError] = useState('');
@@ -80,7 +80,7 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
   const recording = recordings[index];
   // planChanged: the recordings already arrived re-cut (phrases ↔ sentences),
   // so what students answer changes even if nothing moves here.
-  const changedSegments = planChanged || recordings.some((r) => !sameSegmentPlan(r.originalSegments, r.segments));
+  const changedSegments = planChanged || (delivery !== 'sentences' && recordings.some((r) => !sameSegmentPlan(r.originalSegments, r.segments)));
   const phraseCount = recordings.reduce((n, r) => n + r.segments.length, 0);
   const originalCount = recordings.reduce((n, r) => n + r.originalSegments.length, 0);
 
@@ -169,7 +169,7 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
   async function accept() {
     setSaving(true); setError(''); stop();
     try {
-      await onAccept({ segments: recordings.flatMap((r) => r.segments), clips: recordings.flatMap(recordingClips) });
+      await onAccept(prepareReviewedAudio(recordings, delivery));
     } catch (err) { setError(err.message); setSaving(false); }
   }
 
@@ -271,7 +271,7 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
       </div>}
     </>}
     <p className="field-hint">Keep this page open until saving finishes. {recording?.cue && 'The last phrase includes the spoken punctuation cue.'}</p>
-    {changedSegments && splitNote && phraseCount > plan.length && <p className="studio-note" role="note">{splitNote}</p>}
+    {delivery === 'sentences' && <p className="studio-note" role="note">Students hear one complete sentence at a time. Phrase splits are joined when you save.</p>}
     {changedSegments && segmentChangeNotice && <label style={{ display: 'block', margin: '1rem 0' }}>
       <input type="checkbox" checked={confirmedChange} disabled={saving} onChange={(e) => setConfirmedChange(e.target.checked)} /> {segmentChangeNotice}
     </label>}

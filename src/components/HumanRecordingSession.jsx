@@ -16,7 +16,7 @@ import { wavClip } from '../lib/notebookWav';
  *   sessionId               → a session remembered earlier: offered to load first
  *   onFinishLater()         → leaves while the actors record
  */
-export default function HumanRecordingSession({ plan, passage, title, lang, rate, mode, onCancel, onAccept, acceptLabel, segmentChangeNotice, splitNote, requireServer, onSessionPassage,
+export default function HumanRecordingSession({ plan, passage, title, lang, rate, mode, delivery, onCancel, onAccept, acceptLabel, segmentChangeNotice, planChanged, requireServer, onSessionPassage,
   createDraft, onSessionCreated, draftCode = '', sessionId = '', onFinishLater }) {
   const script = useMemo(() => sessionScript(plan, { lang, passage }), [plan, lang, passage]);
   const [password, setPassword] = useState('');
@@ -139,8 +139,8 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
     } finally { await context.close(); }
   }
 
-  if (inStudio && studio) return <AudioSplitStudio plan={plan} lang={lang} rate={rate} mode={mode}
-    initialRecordings={studio.recordings} onAccept={onAccept} acceptLabel={acceptLabel} segmentChangeNotice={segmentChangeNotice} splitNote={splitNote}
+  if (inStudio && studio) return <AudioSplitStudio plan={plan} lang={lang} rate={rate} mode={mode} delivery={delivery}
+    initialRecordings={studio.recordings} onAccept={onAccept} acceptLabel={acceptLabel} segmentChangeNotice={segmentChangeNotice} planChanged={planChanged}
     backLabel="Back to the recording session"
     onCancel={(recordings) => { if (recordings) setStudio((current) => ({ ...current, recordings })); setInStudio(false); }} />;
 

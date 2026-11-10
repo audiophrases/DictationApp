@@ -187,8 +187,6 @@ function SettingsSection({ code, data, onSaved }) {
   );
 }
 
-const SPLIT_DRAFT_NOTE = 'You split sentences into phrases, so this becomes a phrase dictation when you save: students hear one phrase at a time (“Short phrases”).';
-
 function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
   const { record, sentences } = data;
   const unit = dictationUnit(record);
@@ -197,13 +195,14 @@ function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
   const [studio, setStudio] = useState(loadTakes && !!sessionId);
   const savedStudioSegments = useRef(null);
   const groups = useMemo(() => segmentGroups(sentences), [sentences]);
-  const studioPlan = useMemo(() => groups.map((group) => ({
-    sentence: group.sentence, segments: sentences.slice(group.start, group.start + group.count),
-  })), [groups, sentences]);
   // How the re-cut audio should be read: the teacher may switch between
   // phrases and full sentences here, keeping the recordings.
   const currentDelivery = deliveryFor(record);
   const [targetDelivery, setTargetDelivery] = useState(currentDelivery);
+  const studioPlan = useMemo(() => targetDelivery === currentDelivery
+    ? groups.map((group) => ({ sentence: group.sentence, segments: sentences.slice(group.start, group.start + group.count) }))
+    : notebookPlan(data.text, record.settings.lang, targetDelivery),
+  [targetDelivery, currentDelivery, groups, sentences, data.text, record.settings.lang]);
   const reuse = useMemo(() => ({
     label: 'Keep the current recordings',
     hint: targetDelivery === currentDelivery
@@ -284,16 +283,12 @@ function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
     }
   }
 
-  if (studio) return <AudioSplitStudio title={record.title} passage={data.text} requireServer={requireServer} plan={studioPlan} lang={record.settings.lang} rate={rate} mode={record.mode}
+  if (studio) return <AudioSplitStudio title={record.title} passage={data.text} requireServer={requireServer} plan={studioPlan} lang={record.settings.lang} rate={rate} mode={record.mode} delivery={targetDelivery}
     segmentChangeNotice={draft ? '' : 'I understand that moving words changes the expected answers and resets student attempts, scores and released corrections for this assignment.'}
     acceptLabel={draft ? 'Save recordings and publish' : 'Save reviewed recordings'} onCancel={() => { setStudio(false); savedStudioSegments.current = null; onSaved(); }}
     initialSource={draft && sessionId ? 'human' : ''} sessionId={sessionId} reuse={reuse} planChanged={targetDelivery !== currentDelivery}
-    splitNote={targetDelivery === 'sentences' ? SPLIT_DRAFT_NOTE : ''}
     onAccept={async (prepared) => {
-      // Splitting any sentence makes a phrase dictation; otherwise the
-      // reading the teacher chose stands (the server clears attempts for any
-      // content change, and the tick box above said so).
-      const delivery = prepared.segments.length > groups.length ? 'phrases' : targetDelivery;
+      const delivery = targetDelivery;
       const changed = !sameSegmentPlan(sentences, prepared.segments) || delivery !== currentDelivery;
       let stored = savedStudioSegments.current || sentences;
       if (changed && !savedStudioSegments.current) {

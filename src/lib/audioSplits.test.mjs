@@ -33,7 +33,7 @@ test('expanded numbers, incomplete timing and invalid ranges require review', ()
 
 const bundled = await build({ entryPoints: ['src/lib/notebookAudio.js'], bundle: true, write: false,
   platform: 'node', format: 'esm', define: { 'import.meta.env': '{}' }, logLevel: 'silent' });
-const { prepareSentenceRecording, prepareHumanSentenceRecording, recordingClips } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`);
+const { prepareSentenceRecording, prepareHumanSentenceRecording, prepareReviewedAudio, recordingClips } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`);
 const buffer = { sampleRate: 100, duration: 1.5, length: 150, getChannelData: () => Float32Array.from({ length: 150 }, () => 0.2) };
 
 test('synthesis receives the full sentence once; manual cuts reuse its audio', async (t) => {
@@ -85,6 +85,51 @@ test('punctuation is a separate recording appended only to the last clip', async
 const assignmentBundle = await build({ entryPoints: ['src/lib/buildAssignment.js'], bundle: true, write: false,
   platform: 'node', format: 'esm', define: { 'import.meta.env': '{}' }, logLevel: 'silent' });
 const { uploadPreparedClips, rerecordSegments, recordSentences } = await import(`data:text/javascript;base64,${Buffer.from(assignmentBundle.outputFiles[0].text).toString('base64')}`);
+
+test('reviewed studio splits obey delivery for typing and notebook uploads', async (t) => {
+  const uploads = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(options?.method, 'PUT', 'reviewed audio must never be synthesized again');
+    uploads.push({ url, ...options });
+    return { ok: true, json: async () => ({}) };
+  });
+  for (const mode of ['typing', 'notebook']) {
+    const cue = mode === 'notebook' ? buffer : null;
+    const recordings = [
+      { sentence: 'Moving abroad helped him.', segments: ['Moving', 'abroad helped him.'],
+        buffer, cuts: [0.1, 0.5, 1.4], cue },
+      { sentence: 'It was hard.', segments: ['It was', 'hard.'],
+        buffer, cuts: [0.2, 0.8, 1.3], cue },
+    ];
+    for (const delivery of ['sentences', 'phrases']) {
+      uploads.length = 0;
+      const prepared = prepareReviewedAudio(recordings, delivery);
+      const expected = delivery === 'sentences'
+        ? recordings.map((r) => ({ ...r, segments: [r.sentence], cuts: [r.cuts[0], r.cuts.at(-1)] }))
+        : recordings;
+      assert.deepEqual(prepared.segments, delivery === 'sentences'
+        ? ['Moving abroad helped him.', 'It was hard.']
+        : ['Moving', 'abroad helped him.', 'It was', 'hard.']);
+      const expectedClips = expected.flatMap(recordingClips);
+      assert.equal(prepared.clips.length, expectedClips.length);
+      for (let i = 0; i < expectedClips.length; i++) {
+        assert.deepEqual(await prepared.clips[i].arrayBuffer(), await expectedClips[i].arrayBuffer(),
+          'whole sentences retain their exact trimmed audio and one final cue, without gaps at phrase cuts');
+      }
+      assert.deepEqual(await recordSentences('test', prepared.segments, {
+        mode, delivery, text: 'Moving abroad helped him. It was hard.', prepared,
+      }), []);
+      assert.equal(uploads.length, expectedClips.length);
+      uploads.forEach((upload, i) => {
+        assert.ok(upload.url.endsWith(`/audio/${i}`));
+        assert.equal(upload.body, prepared.clips[i]);
+      });
+    }
+    assert.deepEqual(recordings.map((r) => r.cuts), [[0.1, 0.5, 1.4], [0.2, 0.8, 1.3]],
+      'exporting full sentences leaves the studio edits intact');
+    assert.deepEqual(recordings.map((r) => r.segments), [['Moving', 'abroad helped him.'], ['It was', 'hard.']]);
+  }
+});
 
 test('upload retries preserve reviewed bytes and never call the voice service', async (t) => {
   const clips = [new Blob(['first'], { type: 'audio/wav' }), new Blob(['second'], { type: 'audio/wav' })];

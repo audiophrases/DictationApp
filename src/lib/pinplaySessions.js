@@ -49,30 +49,30 @@ export function sessionFields(plan, speakers, title, options = {}) {
 const lineSentence = (line) => stripSpokenPunctuation(line.text);
 export const sessionSaysPunctuation = (session) => (session?.lines || []).some((line) => hasSpokenPunctuation(line.text));
 
-export function validateSession(session, plan, requireApproved = false) {
+export function validateSession(session, plan, requireTakes = false) {
   if (!Array.isArray(session?.lines) || session.lines.length !== plan.length
     || session.lines.some((line, i) => lineSentence(line) !== compact(plan[i].sentence))) {
     throw new Error('This session does not match the dictation sentence by sentence. Use the original passage or create a matching session.');
   }
-  if (requireApproved && session.lines.some((line) => line.status !== 'ok' || !line.take?.key)) {
-    throw new Error('Every sentence needs an approved take before the splitting studio opens.');
+  // No approval needed: the teacher hears every take in the splitting studio.
+  // Only a redo the teacher asked for holds a sentence back.
+  if (requireTakes && session.lines.some((line) => !line.take?.key || line.status === 'redo')) {
+    throw new Error('Every sentence needs a take, with no redo pending, before the splitting studio opens.');
   }
 }
 
 /**
  * Where a session stands on its way to the splitting studio, as sentence
- * numbers: approved takes, takes not reviewed yet, and lines still waiting
- * for an actor (never recorded, or a redo was requested).
+ * numbers: recorded (approved or not), and still waiting for an actor —
+ * never recorded, or a redo was requested.
  */
 export function sessionProgress(session) {
   const lines = session?.lines || [];
   const numbers = (test) => lines.flatMap((line, i) => (test(line) ? [i + 1] : []));
-  const approved = numbers((line) => line.take?.key && line.status === 'ok');
-  const toReview = numbers((line) => line.take?.key && line.status !== 'ok' && line.status !== 'redo');
+  const recorded = numbers((line) => line.take?.key && line.status !== 'redo');
   const redo = numbers((line) => line.take?.key && line.status === 'redo');
   const missing = numbers((line) => !line.take?.key);
-  return { total: lines.length, approved, toReview, redo, missing,
-    ready: lines.length > 0 && !redo.length && !missing.length };
+  return { total: lines.length, recorded, redo, missing, ready: lines.length > 0 && !redo.length && !missing.length };
 }
 
 // The takes a splitting studio was made from: when they change, so must it.

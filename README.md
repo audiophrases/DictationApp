@@ -82,14 +82,15 @@ interrogación]`. Commas are not said. The notes are removed again when takes
 are matched to sentences, so a passage's own brackets such as `[sic]` still
 match, and sessions made before the notes still work.
 
-A loaded session opens with a panel that says where it stands (approved,
-recorded but not reviewed, still waiting for the actors) and holds the way
-into the splitting studio, repeated below the takes. Once every sentence has a
-take, **Approve the remaining takes and open splitting studio** does it in one
-click: takes not reviewed yet are approved as recorded, with the automatic
-silence trim. Reviewing first is optional: preview a take, adjust its trim, then
-**Approve take** or **Request redo**. Until every sentence has a take, the
-panel lists the sentences still waiting and offers **Refresh takes**. In the
+A loaded session opens with a panel that says where it stands (sentences
+recorded, sentences still waiting for the actors) and holds the way into the
+splitting studio, repeated below the takes. Nothing needs approving: once every
+sentence has a take, **Open splitting studio**, where you hear every phrase
+anyway. Until then, the panel lists the sentences still waiting and offers
+**Refresh takes**. Per sentence you can optionally preview a take, change its
+automatic silence trim (**Save trim**), or **Request redo**; a sentence with a
+redo pending waits for its new take (**Keep this take after all** undoes the
+request). In the
 studio, **Back to the recording session** keeps your split changes, and
 **Return to splitting studio** brings them back as long as the takes stay the
 same. The original phrase logic is retained, but human audio has estimated

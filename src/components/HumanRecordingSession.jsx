@@ -67,48 +67,44 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
       const trim = trims[line.id] || line.trim || autoTrim(buffer);
       const piece = trimTake(buffer, trim, context);
       setTrims((items) => ({ ...items, [line.id]: trim }));
-      setPreview({ id: line.id, key: line.take.key, blob: wavClip(piece, 0, piece.duration), duration: buffer.duration });
+      // A trim changed and not saved yet stays changed while it is previewed again.
+      const edited = preview?.id === line.id && preview.key === line.take.key && !!preview.edited;
+      setPreview({ id: line.id, key: line.take.key, blob: wavClip(piece, 0, piece.duration), duration: buffer.duration, edited });
     } finally { await context.close(); }
   }
-  async function review(line, status, signal) {
-    if (status === 'ok') {
-      const { session: latest } = await api('get', { id: session.id }, signal);
-      validateSession(latest, plan);
-      const latestLine = latest.lines.find((item) => item.id === line.id);
-      if (!preview || preview.dirty || preview.id !== line.id || preview.key !== latestLine?.take?.key) {
-        setSession(latest); stop();
-        throw new Error('The take changed. Preview the current recording before approving it.');
-      }
-    }
-    const { session: next } = await api('save', { id: session.id,
-      lines: [{ id: line.id, status, ...(status === 'ok' ? { trim: trims[line.id] } : {}) }],
-    }, signal);
+  // Redo requested, or taken back (the line is then simply recorded again).
+  async function setStatus(line, status, signal) {
+    const { session: next } = await api('save', { id: session.id, lines: [{ id: line.id, status }] }, signal);
     validateSession(next, plan); setSession(next); stop();
+  }
+  // A silence trim the teacher changed and heard, saved with the take so the
+  // splitting studio uses it.
+  async function saveTrim(line, signal) {
+    const { session: latest } = await api('get', { id: session.id }, signal);
+    validateSession(latest, plan);
+    const latestLine = latest.lines.find((item) => item.id === line.id);
+    if (!preview || preview.dirty || preview.id !== line.id || preview.key !== latestLine?.take?.key) {
+      setSession(latest); stop();
+      throw new Error('The take changed. Preview the current recording before saving its trim.');
+    }
+    const { session: next } = await api('save', { id: session.id, lines: [{ id: line.id, trim: trims[line.id] }] }, signal);
+    validateSession(next, plan); setSession(next);
+    setPreview((current) => current && ({ ...current, edited: false }));
   }
   // Actors who said the punctuation need no TTS cue after them.
   const addsCues = (current) => punctuation && !sessionSaysPunctuation(current);
   const studioKey = (current) => `${sessionTakesKey(current)}|${addsCues(current)}`;
   const kept = !!(studio && session && studio.key === studioKey(session));
 
-  // One step from a loaded session to the studio: takes not reviewed yet are
-  // approved as recorded (the teacher hears every phrase in the studio, and a
-  // redo can still be requested here afterwards).
+  // Straight from a loaded session to the studio once every sentence has a
+  // take: nothing to approve, the teacher hears every phrase there.
   async function openStudio(signal) {
     stop();
-    let { session: latest } = await api('get', { id: session.id }, signal);
+    const { session: latest } = await api('get', { id: session.id }, signal);
     validateSession(latest, plan);
-    const progress = sessionProgress(latest);
-    if (!progress.ready) {
-      setSession(latest);
-      throw new Error('Not every sentence has a take yet. Refresh when the actors finish.');
-    }
-    if (progress.toReview.length) {
-      setMessage(`Approving ${progress.toReview.length} take${progress.toReview.length === 1 ? '' : 's'}…`);
-      ({ session: latest } = await api('save', { id: session.id,
-        lines: progress.toReview.map((n) => ({ id: latest.lines[n - 1].id, status: 'ok' })) }, signal));
-    }
-    validateSession(latest, plan, true);
     setSession(latest);
+    if (!sessionProgress(latest).ready) throw new Error('Not every sentence has a take yet. Refresh when the actors finish.');
+    validateSession(latest, plan, true);
     const key = studioKey(latest);
     if (studio?.key === key) { setMessage(''); setInStudio(true); return; }
     const context = new AudioContext({ sampleRate: 24000 });
@@ -144,15 +140,14 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
   ].sort((a, b) => a[0] - b[0]);
   const refresh = () => run((signal) => open(session.id, signal));
   const nextStep = (options) => {
-    const { total, approved, toReview } = progress;
+    const { total, recorded } = progress;
     const shown = waitingFor.slice(0, 8).map(([n, why]) => `${n} (${why})`).join(', ');
     // Shown in both copies of the panel, so the teacher sees it from either.
     const live = options ? {} : { 'aria-hidden': true };
     return <div className="session-next">
       {error && <p className="fetch-error" role={options ? 'alert' : undefined} {...live}>{error}</p>}
       {message && <p role={options ? 'status' : undefined} {...live}>{message}</p>}
-      <p><strong>{approved.length} of {total} sentences approved</strong>
-        {toReview.length > 0 && ` · ${toReview.length} recorded, not reviewed yet`}
+      <p><strong>{recorded.length === total ? `All ${total} sentences recorded` : `${recorded.length} of ${total} sentences recorded`}</strong>
         {waitingFor.length > 0 && ` · ${waitingFor.length} waiting for the actors`}</p>
       {kept ? <>
         <div className="edit-actions">
@@ -165,14 +160,10 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
           <input type="checkbox" checked={punctuation} disabled={busy} onChange={(e) => setPunctuation(e.target.checked)} /> Add TTS punctuation cues after the human sentences
         </label>}
         <div className="edit-actions">
-          <button className="btn-primary" disabled={busy} onClick={() => run(openStudio)}>
-            {toReview.length ? `Approve ${toReview.length === 1 ? 'the last take' : `the ${toReview.length} remaining takes`} and open splitting studio` : 'Open splitting studio'}
-          </button>
+          <button className="btn-primary" disabled={busy} onClick={() => run(openStudio)}>Open splitting studio</button>
           <button className="btn-ghost btn-small" disabled={busy} onClick={refresh}>Refresh takes</button>
         </div>
-        <p className="field-hint">{toReview.length
-          ? 'Takes you haven’t reviewed are approved as recorded, with the silence trimmed automatically. You hear every phrase in the studio, and you can still request a redo here.'
-          : 'Human speech keeps the actor’s pace. Phrase cuts are estimates: listen and adjust them in the studio.'}</p>
+        <p className="field-hint">Silence is trimmed automatically and the actor’s pace is kept. Phrase cuts are estimates: listen and adjust them in the studio.</p>
       </> : <>
         <p>The splitting studio opens when every sentence has a take. Waiting for sentence{waitingFor.length === 1 ? '' : 's'} {shown}{waitingFor.length > 8 ? ` and ${waitingFor.length - 8} more` : ''}.</p>
         <div className="edit-actions">
@@ -185,7 +176,7 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
 
   return <section className="glass-panel" style={{ maxWidth: 900, margin: '1.5rem auto', padding: '1.5rem' }}>
     <h2>Human voice recording sessions</h2>
-    <p className="field-hint">Uses PinPlay’s recording sessions. Share a link with your actors: they record each full sentence on their phone or computer. Listen here, approve or request a redo, then adjust the phrase splits.</p>
+    <p className="field-hint">Uses PinPlay’s recording sessions. Share a link with your actors: they record each full sentence on their phone or computer. Once every sentence has a take, open the splitting studio to hear them and adjust the phrase splits.</p>
     {!session ? <>
       <label className="field-label">PinPlay teacher password
         <input type="password" autoComplete="off" value={password} disabled={busy} onChange={(e) => setPassword(e.target.value)} />
@@ -195,7 +186,7 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
       {message && <p role="status">{message}</p>}
       <button className="btn-ghost" disabled={busy || !password} onClick={() => run(async (signal) => setSessions((await api('list', {}, signal)).sessions || []))}>Load existing PinPlay sessions</button>
       {sessions && <ul>{sessions.map((item) => <li key={item.id} style={{ margin: '0.5rem 0' }}>
-        <button className="btn-ghost" disabled={busy} onClick={() => run((signal) => open(item.id, signal))}>{item.title} · {item.approved}/{item.total} approved</button>
+        <button className="btn-ghost" disabled={busy} onClick={() => run((signal) => open(item.id, signal))}>{item.title} · {item.recorded ?? item.approved}/{item.total} recorded</button>
       </li>)}{!sessions.length && <li>No recording sessions yet.</li>}</ul>}
       <details open={!sessions && plan.length > 0} style={{ margin: '1rem 0' }}><summary>Create a session for this dictation</summary>
         <label className="field-label">Session title<input value={sessionTitle} maxLength={120} disabled={busy} onChange={(e) => setSessionTitle(e.target.value)} /></label>
@@ -217,7 +208,7 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
       </div>
       {nextStep(true)}
       <details open={!progress.ready} style={{ margin: '1rem 0' }}><summary>Links for the actors</summary>
-        <p>Actors can record from these links without signing in. Anyone with a link can view the script and record unapproved lines.</p>
+        <p>Actors can record from these links without signing in. Anyone with a link can view the script and record lines.</p>
         <p><a href={actorLink(session.id)} target="_blank" rel="noreferrer">Open recorder · whole passage</a></p>
         <input aria-label="Recording session link" readOnly value={actorLink(session.id)} onFocus={(e) => e.target.select()} />
         <ul>{[...new Set(session.lines.flatMap((line) => line.speaker.split('+').map((name) => name.trim())))].map((speaker) => <li key={speaker}>
@@ -227,23 +218,27 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
         <p className="field-hint">Sessions and takes are saved in PinPlay. You can come back later and load this session.</p>
       </details>
       <h4>Takes, sentence by sentence</h4>
-      <p className="field-hint">Optional: listen to a take here to approve it or ask the actor for a redo.</p>
+      <p className="field-hint">Nothing to do here unless you want to: listen to a take, change its silence trim, or ask the actor for a redo.</p>
       <ol>{session.lines.map((line) => <li key={line.id} style={{ margin: '1rem 0' }}>
         <p><strong>{line.speaker}</strong>: {line.text}</p>
-        <p className="field-hint">{({ todo: 'Not recorded yet', recorded: 'Recorded, not reviewed yet', ok: 'Approved', redo: 'Redo requested' })[line.status]}</p>
+        <p className="field-hint">{!line.take ? 'Not recorded yet' : line.status === 'redo' ? 'Redo requested' : 'Recorded'}</p>
         <div className="edit-actions" style={{ justifyContent: 'flex-start', flexWrap: 'wrap' }}>
-          <button className="btn-ghost btn-small" disabled={busy || !line.take} onClick={() => run((signal) => previewTake(line, signal))}>Preview take</button>
-          <button className="btn-ghost btn-small" disabled={busy || !line.take || preview?.id !== line.id || preview?.dirty} onClick={() => run((signal) => review(line, 'ok', signal))}>Approve take</button>
-          <button className="btn-ghost btn-small" disabled={busy || !line.take} onClick={() => run((signal) => review(line, 'redo', signal))}>Request redo</button>
+          <button className="btn-ghost btn-small" disabled={busy || !line.take} onClick={() => run((signal) => previewTake(line, signal))}>
+            {preview?.id === line.id ? 'Preview again' : 'Preview take'}</button>
+          {line.status === 'redo'
+            ? <button className="btn-ghost btn-small" disabled={busy || !line.take} onClick={() => run((signal) => setStatus(line, 'recorded', signal))}>Keep this take after all</button>
+            : <button className="btn-ghost btn-small" disabled={busy || !line.take} onClick={() => run((signal) => setStatus(line, 'redo', signal))}>Request redo</button>}
         </div>
         {preview?.id === line.id && <>
           <audio ref={player} src={previewUrl || undefined} controls autoPlay style={{ width: '100%' }} />
-          <p className="field-hint">Silence is trimmed automatically. Adjust the start/end in seconds and preview again before approving.</p>
+          <p className="field-hint">Silence is trimmed automatically. To change it, adjust the start or end, preview again, then save the trim.</p>
           {['s', 'e'].map((key) => <label key={key} style={{ display: 'inline-block', marginRight: '1rem' }}>
             {key === 's' ? 'Start (seconds)' : 'End (seconds)'}
             <input type="number" min="0" max={preview.duration} step="0.01" value={(trims[line.id]?.[key] ?? 0) / 1000} disabled={busy}
-              onChange={(e) => { player.current?.pause(); setTrims((items) => ({ ...items, [line.id]: { ...items[line.id], [key]: Number(e.target.value) * 1000 } })); setPreview((current) => current && ({ ...current, dirty: true })); }} />
+              onChange={(e) => { player.current?.pause(); setTrims((items) => ({ ...items, [line.id]: { ...items[line.id], [key]: Number(e.target.value) * 1000 } })); setPreview((current) => current && ({ ...current, dirty: true, edited: true })); }} />
           </label>)}
+          {preview.edited && <button className="btn-ghost btn-small" disabled={busy || preview.dirty}
+            title={preview.dirty ? 'Preview again first' : undefined} onClick={() => run((signal) => saveTrim(line, signal))}>Save trim</button>}
         </>}
       </li>)}</ol>
       {session.lines.length > 3 && nextStep(false)}

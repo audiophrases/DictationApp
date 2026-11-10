@@ -48,11 +48,10 @@ test('paragraphs come from the passage’s line breaks; notes never break matchi
   assert.equal(sessionPassage(old), two.map((part) => part.sentence).join('\n'));
 });
 
-test('only matching approved takes can enter the splitting studio', () => {
+test('matching takes enter the splitting studio without approval, unless a redo is pending', () => {
   validateSession(session, plan, true);
-  for (const status of ['todo', 'recorded', 'redo']) {
-    assert.throws(() => validateSession({ ...session, lines: [{ ...session.lines[0], status }] }, plan, true));
-  }
+  validateSession({ ...session, lines: [{ ...session.lines[0], status: 'recorded' }] }, plan, true);
+  assert.throws(() => validateSession({ ...session, lines: [{ ...session.lines[0], status: 'redo' }] }, plan, true), /redo/);
   assert.throws(() => validateSession({ ...session, lines: [{ ...session.lines[0], text: 'Different words.' }] }, plan));
   assert.throws(() => validateSession({ ...session, lines: [] }, plan));
   assert.throws(() => validateSession({ ...session, lines: [{ ...session.lines[0], take: null }] }, plan, true));
@@ -68,12 +67,10 @@ test('progress says what stands between a session and the splitting studio', () 
     { id: 'l3', status: 'todo', take: null },
     { id: 'l4', status: 'redo', take: take(4) },
   ];
-  assert.deepEqual(sessionProgress({ lines }),
-    { total: 4, approved: [1], toReview: [2], redo: [4], missing: [3], ready: false });
-  // Every sentence has a take nobody asked to redo: ready, even unreviewed.
+  assert.deepEqual(sessionProgress({ lines }), { total: 4, recorded: [1, 2], redo: [4], missing: [3], ready: false });
+  // Every sentence has a take nobody asked to redo: ready, approved or not.
   const recorded = lines.map((line, i) => ({ ...line, status: i ? 'recorded' : 'ok', take: take(i + 1) }));
-  assert.deepEqual(sessionProgress({ lines: recorded }),
-    { total: 4, approved: [1], toReview: [2, 3, 4], redo: [], missing: [], ready: true });
+  assert.deepEqual(sessionProgress({ lines: recorded }), { total: 4, recorded: [1, 2, 3, 4], redo: [], missing: [], ready: true });
   assert.equal(sessionProgress({ lines: [] }).ready, false);
   assert.equal(sessionProgress(null).ready, false);
 

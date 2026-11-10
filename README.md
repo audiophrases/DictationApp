@@ -106,13 +106,13 @@ optionally be added with TTS (sessions with notes already say them). Takes are c
 assignment on save; subsequent PinPlay retakes do not change a published
 assignment automatically.
 
-Splitting a sentence in the studio makes a phrase dictation. In **New
-assignment** set to **Read in: Full sentences** (the default for typed
-dictations), any sentence you split turns the assignment into **Short
-phrases**, and the studio says so; the assignment server keeps phrases only
-for that delivery. An existing full-sentence assignment can't be converted
-from **Edit**: the studio explains, and nothing is changed until the phrases
-are merged back.
+**Read in** decides what students hear; the studio's splits never change it.
+With **Full sentences**, splits in the studio are only for listening and
+moving cut points: on save each sentence is exported whole from its reviewed
+audio (`prepareReviewedAudio`, which merges the splits so no silence is
+added), keeping the trimmed ends and the punctuation cue. With **Short
+phrases**, the splits are the phrases students hear. To change the reading
+of an existing assignment, use **Edit > Recordings > Read in** (below).
 
 **The assignment is created together with the recording session.** In **New
 assignment**, fill in the title, class, due date and settings, then **Human
@@ -122,9 +122,8 @@ at once as a draft (students can't see it) with the session's id on it
 the list. The list shows it as **waiting for actors**; opening it offers
 **Load the takes**, which opens Edit straight onto that session (password,
 **Load the takes**, **Open splitting studio**). **Save recordings and
-publish** uploads the phrases, forgets the session and publishes. A draft
-split into phrases there becomes a phrase dictation (the worker accepts a
-`delivery` on `update-content` only while the record is a draft).
+publish** uploads the audio as the draft's **Read in** says, forgets the
+session and publishes.
 
 Sessions persist in PinPlay and can be reopened later with **Load existing
 PinPlay sessions**. With an empty passage, selecting a session imports its text;

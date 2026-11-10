@@ -20,7 +20,12 @@ in order** as students will hear them. The suggested phrases are only a start:
 **Merge with next** joins two phrases (down to **Merge into one phrase** for the
 whole sentence), **✂ Split** then a ✂ between two words starts a new phrase, and
 the word-move buttons move words across a split. Drag a split marker on the
-waveform, or use its slider, to fine-tune the timing. The audio cut follows
+waveform, or use its slider, to fine-tune the timing. The sentence's own
+**start and end** are markers too (`cuts[0]` and `cuts.at(-1)`,
+`trimEnds`): drag them in, use the Start/End sliders, or **Trim silence at
+the ends** (`trimSilence`), and the audio outside is discarded, typically a
+long silence or a microphone bump before a voice actor starts; the waveform
+greys out the discarded part. The audio cut follows
 every change; Reset restores the original phrases and timings, and the sentence
 buttons at the top show which sentences still need a listening check. Audio
 without word timings (human takes, Listening Studio voices, a split the voice

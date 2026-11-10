@@ -33,11 +33,34 @@ export function sentenceCuts(segments, boundaries, duration) {
   return cuts;
 }
 
+// The first and last cuts are the sentence's start and end: audio outside
+// them is discarded (a long silence, a microphone bump before the actor
+// starts), so they may sit inside the recording.
 export function validateCuts(cuts, count, duration) {
-  if (!Array.isArray(cuts) || cuts.length !== count + 1 || cuts[0] !== 0 || cuts.at(-1) !== duration
+  if (!Array.isArray(cuts) || cuts.length !== count + 1 || cuts[0] < 0 || cuts.at(-1) > duration
     || cuts.some((cut, i) => !Number.isFinite(cut) || (i > 0 && cut <= cuts[i - 1]))) {
     throw new Error('Split points must stay in order within the sentence.');
   }
+}
+
+// The kept part of a sentence: a new start or end. Inner splits stay where
+// they are, so the end being moved can never cross the phrase next to it.
+export function trimEnds(recording, { start = recording.cuts[0], end = recording.cuts.at(-1) } = {}) {
+  const cuts = recording.cuts.slice();
+  const { duration } = recording.buffer;
+  cuts[0] = Math.max(0, Math.min(start, (cuts[1] ?? duration) - MIN_PHRASE));
+  cuts[cuts.length - 1] = Math.min(duration, Math.max(end, (cuts.at(-2) ?? 0) + MIN_PHRASE));
+  validateCuts(cuts, recording.segments.length, duration);
+  return { ...recording, cuts };
+}
+
+// Discards the silence before the first sound and after the last, keeping a
+// little breathing room either side.
+const LEAD = 0.08;
+const TAIL = 0.15;
+export function trimSilence(recording) {
+  const [first, last] = speechBounds(recording.buffer.getChannelData(0), recording.buffer.sampleRate);
+  return trimEnds(recording, { start: Math.max(0, first - LEAD), end: Math.min(recording.buffer.duration, last + TAIL) });
 }
 
 export function estimatedCuts(segments, duration) {
@@ -192,7 +215,7 @@ export function mergeSplit(recording, splitIndex) {
 
 // One phrase for the whole sentence.
 export function mergeAll(recording) {
-  return { ...recording, segments: [recording.segments.map((s) => s.trim()).join(' ')], cuts: [0, recording.buffer.duration] };
+  return { ...recording, segments: [recording.segments.map((s) => s.trim()).join(' ')], cuts: [recording.cuts[0], recording.cuts.at(-1)] };
 }
 
 // Splits phrase `segmentIndex` after its first `wordCount` words.

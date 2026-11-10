@@ -178,7 +178,7 @@ test('human takes keep their audio and phrase plan without calling TTS', async (
 });
 
 // ---------------------------------------------------------------- merging and splitting
-const { mergeSplit, mergeAll, splitSegment, pauseCuts, speechBounds, quietestNear } = await import('./audioSplits.js');
+const { mergeSplit, mergeAll, splitSegment, pauseCuts, speechBounds, quietestNear, trimEnds, trimSilence } = await import('./audioSplits.js');
 const { validatedNotebookSegments, segmentGroups } = await import('./notebookShared.js');
 
 // Speech-like blocks with quiet gaps: [seconds, loud?]
@@ -282,4 +282,25 @@ test('merged and split phrase plans are still valid assignment answers', () => {
     assert.deepEqual(groups.map((g) => g.sentence), ['Moving abroad helped him.', 'It was hard at first.']);
     assert.equal(groups.reduce((n, g) => n + g.count, 0), segments.length);
   }
+});
+
+test('the sentence start and end can move in, discarding the audio outside', () => {
+  // 0.3 s silence, speech, 0.25 s pause, speech, 0.4 s silence (see `spoken`).
+  const recording = { segments: ['Moving abroad', 'helped him.'], boundaries: [], buffer: spoken,
+    cuts: [0, 1.4, spoken.duration], source: 'human', warning: '', checked: true };
+  const trimmed = trimSilence(recording);
+  assert.ok(trimmed.cuts[0] > 0.15 && trimmed.cuts[0] < 0.3, `start ${trimmed.cuts[0]}`);
+  assert.ok(trimmed.cuts.at(-1) > spoken.duration - 0.4 && trimmed.cuts.at(-1) < spoken.duration - 0.2, `end ${trimmed.cuts.at(-1)}`);
+  assert.equal(trimmed.cuts[1], 1.4, 'inner splits untouched');
+  // The clips are cut from the kept part only.
+  const clips = recordingClips(trimmed);
+  assert.equal(clips.length, 2);
+  // Ends never cross the phrase next to them, nor leave the recording.
+  const squeezed = trimEnds(recording, { start: 5, end: -1 });
+  assert.ok(squeezed.cuts[0] < 1.4 && squeezed.cuts[0] > 1.3);
+  assert.ok(squeezed.cuts.at(-1) > 1.4 && squeezed.cuts.at(-1) < 1.5);
+  assert.deepEqual(trimEnds(recording, { start: -2, end: 99 }).cuts, [0, 1.4, spoken.duration]);
+  // Merging keeps the trimmed ends; the untrimmed original is still reachable through Reset.
+  assert.deepEqual(mergeAll(trimmed).cuts, [trimmed.cuts[0], trimmed.cuts.at(-1)]);
+  assert.deepEqual(recording.cuts, [0, 1.4, spoken.duration]);
 });

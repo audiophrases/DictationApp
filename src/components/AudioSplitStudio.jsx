@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { mergeAll, mergeSplit, moveSplitWord, splitSegment } from '../lib/audioSplits';
+import { mergeAll, mergeSplit, moveSplitWord, splitSegment, trimSilence } from '../lib/audioSplits';
 import { sameSegmentPlan } from '../lib/notebookShared';
 import { prepareSentenceRecording, recordingClips } from '../lib/notebookAudio';
 import { wavClip } from '../lib/notebookWav';
@@ -45,16 +45,22 @@ function Waveform({ buffer, cuts, disabled, onMove, onPlay }) {
       {cuts.slice(0, -1).map((cut, i) => <rect key={i} x={cut / buffer.duration * 600} y="0" height="80"
         width={(cuts[i + 1] - cut) / buffer.duration * 600} className={i % 2 ? 'split-region-b' : 'split-region-a'} />)}
       <path d={path} stroke="var(--text-muted)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+      {/* Discarded audio outside the sentence's start and end. */}
+      {cuts[0] > 0 && <rect x="0" y="0" height="80" width={cuts[0] / buffer.duration * 600} className="split-discard" />}
+      {cuts.at(-1) < buffer.duration && <rect x={cuts.at(-1) / buffer.duration * 600} y="0" height="80" width={(buffer.duration - cuts.at(-1)) / buffer.duration * 600} className="split-discard" />}
     </svg>
     {cuts.slice(0, -1).map((cut, i) => <span key={i} className="split-wave-label" style={{ left: percent((cut + cuts[i + 1]) / 2) }}>{i + 1}</span>)}
-    {cuts.slice(1, -1).map((cut, i) => <span key={i} className="split-marker" style={{ left: percent(cut) }}
-      title={`Drag split ${i + 1}`} aria-hidden="true"
-      onPointerDown={(e) => {
-        if (disabled) return;
-        e.stopPropagation();
-        drag.current = { index: i + 1, moved: false };
-        box.current.setPointerCapture(e.pointerId);
-      }} />)}
+    {cuts.map((cut, i) => {
+      const edge = i === 0 ? 'start' : i === cuts.length - 1 ? 'end' : '';
+      return <span key={i} className={`split-marker${edge ? ` split-edge split-edge-${edge}` : ''}`} style={{ left: percent(cut) }}
+        title={edge ? `Drag the ${edge} of the sentence: audio ${edge === 'start' ? 'before' : 'after'} it is discarded` : `Drag split ${i}`} aria-hidden="true"
+        onPointerDown={(e) => {
+          if (disabled) return;
+          e.stopPropagation();
+          drag.current = { index: i, moved: false };
+          box.current.setPointerCapture(e.pointerId);
+        }} />;
+    })}
   </div>;
 }
 
@@ -152,9 +158,12 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
   }
   function moveCut(cutIndex, value) {
     const cuts = recording.cuts.slice();
-    cuts[cutIndex] = Math.max(cuts[cutIndex - 1] + 0.01, Math.min(cuts[cutIndex + 1] - 0.01, value));
+    const lo = cutIndex === 0 ? 0 : cuts[cutIndex - 1] + 0.01;
+    const hi = cutIndex === cuts.length - 1 ? recording.buffer.duration : cuts[cutIndex + 1] - 0.01;
+    cuts[cutIndex] = Math.max(lo, Math.min(hi, value));
     update({ cuts, checked: !recording.warning });
   }
+  const discarded = recording ? { start: recording.cuts[0], end: recording.buffer.duration - recording.cuts.at(-1) } : null;
   async function accept() {
     setSaving(true); setError(''); stop();
     try {
@@ -191,12 +200,23 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
         onMove={(cutIndex, time) => moveCut(cutIndex, time)}
         onPlay={(i) => listen(recordingClips(recording)[i], `Phrase ${i + 1}`)} />
       <div className="edit-actions split-toolbar">
-        <button className="btn-ghost btn-small" disabled={saving} onClick={() => listen(wavClip(recording.buffer, 0, recording.buffer.duration), 'Full sentence')}>▶ Full sentence</button>
+        <button className="btn-ghost btn-small" disabled={saving} onClick={() => listen(wavClip(recording.buffer, recording.cuts[0], recording.cuts.at(-1)), 'Full sentence')}>▶ Full sentence</button>
+        <button className="btn-ghost btn-small" disabled={saving} title="Discard the silence before the first sound and after the last"
+          onClick={() => change(trimSilence)}>Trim silence at the ends</button>
         {phrases > 1 && <button className="btn-ghost btn-small" disabled={saving} onClick={playInOrder}>▶ Phrases in order</button>}
         {phrases > 1 && <button className="btn-ghost btn-small" disabled={saving} onClick={() => change(mergeAll)}>Merge into one phrase</button>}
         <button className="btn-ghost btn-small" disabled={saving || (sameSegmentPlan(recording.originalSegments, recording.segments) && recording.cuts.every((cut, i) => cut === recording.originalCuts[i]))}
           onClick={() => update({ cuts: recording.originalCuts.slice(), segments: recording.originalSegments.slice(), warning: recording.originalWarning, checked: !recording.originalWarning })}>Reset sentence</button>
       </div>
+      <div className="split-ends">
+        {[['start', 0], ['end', recording.cuts.length - 1]].map(([edge, index]) => <label key={edge} className="split-slider">
+          {edge === 'start' ? 'Start' : 'End'}: {recording.cuts[index].toFixed(2)} s
+          {discarded[edge] > 0.005 ? ` · ${discarded[edge].toFixed(2)} s discarded ${edge === 'start' ? 'before' : 'after'}` : ''}
+          <input aria-label={`Sentence ${edge} in seconds`} type="range" step="0.01" min="0" max={recording.buffer.duration}
+            value={recording.cuts[index]} disabled={saving} onChange={(e) => moveCut(index, Number(e.target.value))} />
+        </label>)}
+      </div>
+      <p className="field-hint">Audio before the start or after the end is left out: move them in to drop a long silence or a bump at the beginning.</p>
       {/* url lags preview by one render (it is made in an effect). */}
       {url && preview && <div className="studio-player">
         <span className="field-hint">{preview.label}{preview.queue?.length ? ' · next phrase follows' : ''}</span>

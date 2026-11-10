@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { ArrowRight, Check, CloudOff, Minus, Plus, X } from 'lucide-react';
 import DiffText from './DiffText';
-import DiffLegend from './DiffLegend';
 import { accuracyClass, reviewSummary, reviewTiles } from '../lib/score';
 
 // One sentence's marking, shown in place of the answer box between sentences
@@ -91,7 +90,6 @@ function SentenceFeedback({ grade, onContinue, isLast, unit = 'sentence' }) {
       <div className="sentence-card-body feedback-body">
         <DiffText segments={grade.segments} />
       </div>
-      {!perfect && <DiffLegend />}
       {next}
     </div>
   );

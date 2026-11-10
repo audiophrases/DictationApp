@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, Loader2, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { deleteAttempt, getAttempt, grantExtraAttempt, reopenAttempt } from '../../lib/assignmentApi';
 import DiffText from '../../components/DiffText';
-import DiffLegend from '../../components/DiffLegend';
 import { accuracyClass } from '../../lib/score';
 import { dictationUnit } from '../../lib/delivery';
 
@@ -157,8 +156,6 @@ function AttemptDetail({ code, attempt, onBack }) {
                 </div>
               ))}
             </div>
-
-            <DiffLegend typedBy="the student" />
           </>
         ) : null}
       </div>

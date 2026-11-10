@@ -3,7 +3,6 @@ import { CheckCircle, Volume2, RefreshCw, FilePlus2 } from 'lucide-react';
 import { gradeDictation, DEFAULT_GRADING_OPTIONS } from '../lib/grading';
 import SourceCitation from '../components/SourceCitation';
 import DiffText from '../components/DiffText';
-import DiffLegend from '../components/DiffLegend';
 import MarkingRules from '../components/MarkingRules';
 import { accuracyClass } from '../lib/score';
 
@@ -113,8 +112,6 @@ function ResultsScreen({
             </div>
           ))}
         </div>
-
-        <DiffLegend />
 
         {passageSource && (
           <div style={{ marginTop: '1rem' }}>

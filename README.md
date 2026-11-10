@@ -101,6 +101,14 @@ optionally be added with TTS (sessions with notes already say them). Takes are c
 assignment on save; subsequent PinPlay retakes do not change a published
 assignment automatically.
 
+Splitting a sentence in the studio makes a phrase dictation. In **New
+assignment** set to **Read in: Full sentences** (the default for typed
+dictations), any sentence you split turns the assignment into **Short
+phrases**, and the studio says so; the assignment server keeps phrases only
+for that delivery. An existing full-sentence assignment can't be converted
+from **Edit**: the studio explains, and nothing is changed until the phrases
+are merged back.
+
 Sessions persist in PinPlay and can be reopened later with **Load existing
 PinPlay sessions**. With an empty passage, selecting a session imports its text;
 with a passage already entered, it must match sentence for sentence. Existing

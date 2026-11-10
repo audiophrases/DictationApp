@@ -7,7 +7,7 @@ import {
 import { prepareHumanSentenceRecording } from '../lib/notebookAudio';
 import { wavClip } from '../lib/notebookWav';
 
-export default function HumanRecordingSession({ plan, passage, title, lang, rate, mode, onCancel, onAccept, acceptLabel, segmentChangeNotice, requireServer, onSessionPassage }) {
+export default function HumanRecordingSession({ plan, passage, title, lang, rate, mode, onCancel, onAccept, acceptLabel, segmentChangeNotice, splitNote, requireServer, onSessionPassage }) {
   const script = useMemo(() => sessionScript(plan, { lang, passage }), [plan, lang, passage]);
   const [password, setPassword] = useState('');
   const [sessions, setSessions] = useState(null);
@@ -129,7 +129,7 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
   }
 
   if (inStudio && studio) return <AudioSplitStudio plan={plan} lang={lang} rate={rate} mode={mode}
-    initialRecordings={studio.recordings} onAccept={onAccept} acceptLabel={acceptLabel} segmentChangeNotice={segmentChangeNotice}
+    initialRecordings={studio.recordings} onAccept={onAccept} acceptLabel={acceptLabel} segmentChangeNotice={segmentChangeNotice} splitNote={splitNote}
     backLabel="Back to the recording session"
     onCancel={(recordings) => { if (recordings) setStudio((current) => ({ ...current, recordings })); setInStudio(false); }} />;
 

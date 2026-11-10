@@ -58,7 +58,7 @@ function Waveform({ buffer, cuts, disabled, onMove, onPlay }) {
   </div>;
 }
 
-export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onAccept, acceptLabel = 'Use audio and create assignment', segmentChangeNotice = '', initialRecordings = null, backLabel = 'Back' }) {
+export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onAccept, acceptLabel = 'Use audio and create assignment', segmentChangeNotice = '', initialRecordings = null, backLabel = 'Back', splitNote = '' }) {
   const [recordings, setRecordings] = useState([]);
   const [index, setIndex] = useState(0);
   const [error, setError] = useState('');
@@ -141,7 +141,9 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
   function goTo(next) { stop(); setSplitting(-1); setIndex(next); }
   function update(changes) {
     stop();
-    setConfirmedChange(false);
+    // Moving a split in time keeps the words where they are: only a changed
+    // phrase plan needs the teacher to confirm again.
+    if (changes.segments) setConfirmedChange(false);
     setRecordings((items) => items.map((item, i) => i === index ? { ...item, ...changes } : item));
   }
   function change(edit) {
@@ -247,6 +249,7 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
       </div>}
     </>}
     <p className="field-hint">Keep this page open until saving finishes. {recording?.cue && 'The last phrase includes the spoken punctuation cue.'}</p>
+    {changedSegments && splitNote && phraseCount > plan.length && <p className="studio-note" role="note">{splitNote}</p>}
     {changedSegments && segmentChangeNotice && <label style={{ display: 'block', margin: '1rem 0' }}>
       <input type="checkbox" checked={confirmedChange} disabled={saving} onChange={(e) => setConfirmedChange(e.target.checked)} /> {segmentChangeNotice}
     </label>}

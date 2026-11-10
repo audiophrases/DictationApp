@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { notebookPlan, segmentSentence, sentenceEndCue } from './notebook.js';
 import { validatedNotebookSegments, sameSegmentPlan } from './notebookShared.js';
 import { trimTrailingSilence, wavClip } from './notebookWav.js';
-import { deliveryFor, dictationUnit } from './delivery.js';
+import { deliveryFor, dictationUnit, reviewedDelivery } from './delivery.js';
 
 const words = (phrase) => phrase.split(/\s+/).length;
 
@@ -214,4 +214,15 @@ test('stored segments group back into their sentences without re-splitting', asy
     { sentence: 'We celebrated the festival.', start: 3, count: 2 },
   ]);
   assert.deepEqual(segmentGroups(['One sentence.', 'Two sentences.']).map((g) => g.count), [1, 1]);
+});
+
+test('splitting a sentence in the studio makes a phrase dictation', () => {
+  const twoSentences = ['Moving abroad helped him.', 'It was hard.'];
+  // Split in the studio: full sentences would refuse the phrases.
+  assert.equal(reviewedDelivery('sentences', 2, ['Moving abroad', 'helped him.', 'It was hard.']), 'phrases');
+  // Left whole, or no studio at all: the teacher's choice stands.
+  assert.equal(reviewedDelivery('sentences', 2, twoSentences), 'sentences');
+  assert.equal(reviewedDelivery('sentences', 2, undefined), 'sentences');
+  // Merged back into one phrase per sentence in a phrase dictation: still phrases.
+  assert.equal(reviewedDelivery('phrases', 2, twoSentences), 'phrases');
 });

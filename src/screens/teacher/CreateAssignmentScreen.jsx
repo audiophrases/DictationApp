@@ -8,7 +8,7 @@ import { studentLink } from '../../lib/appLinks';
 import AudioSplitStudio from '../../components/DictationAudioWorkflow';
 import MarkingRules from '../../components/MarkingRules';
 import { notebookPlan } from '../../lib/notebook';
-import { deliveryFor, dictationUnit } from '../../lib/delivery';
+import { deliveryFor, dictationUnit, reviewedDelivery } from '../../lib/delivery';
 
 // A date input gives a day, and homework is due at the end of that day rather
 // than at midnight as it starts.
@@ -88,11 +88,15 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
     setFailed([]);
     setError('');
     let createdCode = '';
+    // Phrases split in the splitting studio make this a phrase dictation.
+    const sentenceCount = plan.length;
+    const finalDelivery = reviewedDelivery(delivery, sentenceCount, preparedAudio.current?.segments);
+    if (finalDelivery !== delivery) setDelivery(finalDelivery);
     try {
       const { code: newCode, sentences: list } = await createAssignment({
         text: passage,
         mode,
-        delivery,
+        delivery: finalDelivery,
         segments: preparedAudio.current?.segments || segments,
         title,
         className,
@@ -134,6 +138,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
   }
 
   if (phase === 'studio') return <AudioSplitStudio onSessionPassage={setPassage} passage={passage} title={title} requireServer={requireServer} plan={plan} lang={lang} rate={rate} mode={mode}
+    splitNote={delivery === 'sentences' ? 'You split sentences into phrases, so this becomes a phrase dictation: students hear one phrase at a time (“Short phrases”).' : ''}
     onCancel={() => setPhase('form')}
     onAccept={async (prepared) => { preparedAudio.current = prepared; await handleCreate(); }} />;
 

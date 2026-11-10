@@ -171,9 +171,12 @@ function SettingsSection({ code, data, onSaved }) {
   );
 }
 
+const SPLIT_SENTENCES_NOTE = 'This assignment is read in full sentences, so it can’t be saved with sentences split into phrases. Use “Merge into one phrase” on the split sentences, or make a new assignment from the same recordings: splitting there turns it into a phrase dictation.';
+
 function RecordingsSection({ code, data, onSaved, requireServer }) {
   const { record, sentences } = data;
   const unit = dictationUnit(record);
+  const fullSentences = deliveryFor(record) === 'sentences';
   const [studio, setStudio] = useState(false);
   const savedStudioSegments = useRef(null);
   const studioPlan = useMemo(() => segmentGroups(sentences).map((group) => ({
@@ -243,7 +246,11 @@ function RecordingsSection({ code, data, onSaved, requireServer }) {
   if (studio) return <AudioSplitStudio title={record.title} passage={data.text} requireServer={requireServer} plan={studioPlan} lang={record.settings.lang} rate={rate} mode={record.mode}
     segmentChangeNotice="I understand that moving words changes the expected answers and resets student attempts, scores and released corrections for this assignment."
     acceptLabel="Save reviewed recordings" onCancel={() => { setStudio(false); savedStudioSegments.current = null; onSaved(); }}
+    splitNote={fullSentences ? SPLIT_SENTENCES_NOTE : ''}
     onAccept={async (prepared) => {
+      // Checked before anything is changed: the server would replace the text
+      // (clearing every recording) and then refuse the phrases.
+      if (fullSentences && prepared.segments.length > studioPlan.length) throw new Error(SPLIT_SENTENCES_NOTE);
       const changed = !sameSegmentPlan(sentences, prepared.segments);
       let stored = savedStudioSegments.current || sentences;
       if (!sameSegmentPlan(stored, prepared.segments)) {

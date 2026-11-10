@@ -172,7 +172,7 @@ test('human takes keep their audio and phrase plan without calling TTS', async (
   assert.equal(result.buffer, buffer);
   assert.deepEqual(result.segments, part.segments);
   assert.equal(result.source, 'human');
-  assert.ok(result.warning);
+  assert.equal(result.warning, '', 'no listening check to tick');
   assert.equal(result.cue, null);
   assert.equal(recordingClips(result).length, 2);
 });
@@ -257,6 +257,18 @@ test('splitting audio without word timings goes to the pause and asks for a list
   assert.deepEqual(moved.segments, ['Moving', 'abroad helped him.']);
   assert.equal(moved.checked, false);
   validateCuts(moved.cuts, 2, spoken.duration);
+});
+
+test('human takes never ask for a listening check, however they are split', () => {
+  const human = { segments: ['Moving abroad helped him.'], boundaries: [], buffer: spoken,
+    cuts: [0, spoken.duration], source: 'human', warning: '', checked: true };
+  const split = splitSegment(human, 0, 2);
+  assert.ok(split.cuts[1] > 1.3 && split.cuts[1] < 1.55, `cut ${split.cuts[1]}`);
+  assert.equal(split.warning, '');
+  assert.equal(split.checked, true);
+  const moved = moveSplitWord(split, 1, -1);
+  assert.equal(moved.warning, '');
+  assert.equal(moved.checked, true);
 });
 
 test('merged and split phrase plans are still valid assignment answers', () => {

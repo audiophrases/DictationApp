@@ -150,6 +150,10 @@ function newCut(recording, segments, splitIndex, lo, hi) {
 }
 
 const ESTIMATED = 'A split was placed at a pause, without word timings. Listen to both phrases and adjust it by ear.';
+// A split made without word timings asks for a listening check, except in a
+// human take: those are cut by ear anyway, and the teacher asked for no check.
+const splitWarning = (recording, exact) => (exact || recording.source === 'human'
+  ? recording.warning : recording.warning || ESTIMATED);
 
 // direction -1 sends the left phrase's last word to the next phrase;
 // +1 brings the right phrase's first word into the previous phrase.
@@ -170,7 +174,7 @@ export function moveSplitWord(recording, splitIndex, direction) {
   const nextCuts = cuts.slice();
   nextCuts[splitIndex] = cut;
   validateCuts(nextCuts, next.length, recording.buffer.duration);
-  const warning = exact ? recording.warning : recording.warning || ESTIMATED;
+  const warning = splitWarning(recording, exact);
   return { ...recording, segments: next, cuts: nextCuts, warning, checked: !warning };
 }
 
@@ -206,6 +210,6 @@ export function splitSegment(recording, segmentIndex, wordCount) {
   const nextCuts = cuts.slice();
   nextCuts.splice(segmentIndex + 1, 0, cut);
   validateCuts(nextCuts, next.length, recording.buffer.duration);
-  const warning = exact ? recording.warning : recording.warning || ESTIMATED;
+  const warning = splitWarning(recording, exact);
   return { ...recording, segments: next, cuts: nextCuts, warning, checked: !warning };
 }

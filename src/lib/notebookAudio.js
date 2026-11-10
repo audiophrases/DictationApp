@@ -75,9 +75,10 @@ export async function prepareNotebook(text, settings, onProgress) {
 }
 
 // Audio with no word metadata (human takes, Listening Studio voices). Keep
-// the grammatical phrase plan, place each cut at the nearest pause, and
-// require an explicit listening review before publishing.
-export function takeRecording(part, buffer, { cue = null, source, warning }) {
+// the grammatical phrase plan and place each cut at the nearest pause. A
+// warning asks for a ticked listening check before publishing; human takes
+// carry none, because the teacher hears them while splitting anyway.
+export function takeRecording(part, buffer, { cue = null, source, warning = '' }) {
   return { sentence: part.sentence, segments: part.segments.slice(), buffer,
     cuts: pauseCuts(part.segments, buffer.getChannelData(0), buffer.sampleRate), cue, boundaries: [], source, warning };
 }
@@ -85,6 +86,5 @@ export function takeRecording(part, buffer, { cue = null, source, warning }) {
 export async function prepareHumanSentenceRecording(part, buffer, options) {
   const label = options.punctuation ? sentenceEndCue(part.sentence, options.lang) : '';
   const cue = label ? await punctuationAudio(label, { ...options, cueCache: options.cueCache || new Map() }) : null;
-  return takeRecording(part, buffer, { cue, source: 'human',
-    warning: 'Human recording: check that the words match and adjust the phrase cuts by ear.' });
+  return takeRecording(part, buffer, { cue, source: 'human' });
 }

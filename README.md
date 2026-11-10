@@ -93,9 +93,9 @@ redo pending waits for its new take (**Keep this take after all** undoes the
 request). In the
 studio, **Back to the recording session** keeps your split changes, and
 **Return to splitting studio** brings them back as long as the takes stay the
-same. The original phrase logic is retained, but human audio has estimated
-timing, so each sentence requires a listening check. Move words or adjust cut
-times as usual. Human audio keeps the actor's pace; for
+same. The original phrase logic is retained; human audio has no word timings,
+so the cuts start at the nearest pause. There is no tick-box listening check:
+you hear the takes while splitting. Move words or adjust cut times as usual. Human audio keeps the actor's pace; for
 sessions made before the bracket notes, notebook punctuation cues can
 optionally be added with TTS (sessions with notes already say them). Takes are copied into the
 assignment on save; subsequent PinPlay retakes do not change a published

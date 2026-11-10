@@ -240,7 +240,7 @@ function RecordingsSection({ code, data, onSaved, requireServer }) {
     }
   }
 
-  if (studio) return <AudioSplitStudio title={record.title} requireServer={requireServer} plan={studioPlan} lang={record.settings.lang} rate={rate} mode={record.mode}
+  if (studio) return <AudioSplitStudio title={record.title} passage={data.text} requireServer={requireServer} plan={studioPlan} lang={record.settings.lang} rate={rate} mode={record.mode}
     segmentChangeNotice="I understand that moving words changes the expected answers and resets student attempts, scores and released corrections for this assignment."
     acceptLabel="Save reviewed recordings" onCancel={() => { setStudio(false); savedStudioSegments.current = null; onSaved(); }}
     onAccept={async (prepared) => {

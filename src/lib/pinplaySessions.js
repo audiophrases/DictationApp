@@ -2,6 +2,7 @@
 // Teacher credentials are explicitly supplied for PinPlay, never copied from
 // Dictation's login or persisted in browser storage.
 import { splitIntoSentences } from './sentences.js';
+import { annotateSentence, endsParagraph, hasSpokenPunctuation, paragraphEnds, stripSpokenPunctuation } from './spokenPunctuation.js';
 
 export const PINPLAY_API = 'https://api.pinplay.win';
 const RECORD_PAGE = 'https://audiophrases.github.io/pinplay/record/';
@@ -25,19 +26,32 @@ export async function sessionRequest(route, password, fields = {}, signal) {
   return data;
 }
 
-export function sessionFields(plan, speakers, title) {
-  if (!plan.length || plan.length > 300 || plan.some((p) => compact(p.sentence).length > 600)) {
-    throw new Error('Recording sessions support up to 300 sentences, each at most 600 characters. Shorten the passage first.');
+// What each actor reads: the sentence with the punctuation to say aloud in
+// [brackets] (spokenPunctuation.js), a new paragraph where the passage has a
+// line break. The brackets are the whole instruction: no direction.
+export function sessionScript(plan, { lang = 'en-US', passage = '' } = {}) {
+  const paragraphs = paragraphEnds(passage, plan.map((part) => part.sentence));
+  return plan.map((part, i) => annotateSentence(part.sentence, lang, { paragraph: paragraphs[i] }));
+}
+
+export function sessionFields(plan, speakers, title, options = {}) {
+  const script = plan.length ? sessionScript(plan, options) : [];
+  if (!plan.length || plan.length > 300 || script.some((line) => line.length > 600)) {
+    throw new Error('Recording sessions support up to 300 sentences, each at most 600 characters with its punctuation notes. Shorten the passage first.');
   }
-  return { title: title || 'Dictation recording', allowEdits: false, lines: plan.map((part, i) => ({
-    text: compact(part.sentence), speaker: compact(speakers[i]) || 'Narrator',
-    direction: 'Read the complete sentence naturally. Do not say punctuation names.',
+  return { title: title || 'Dictation recording', allowEdits: false, lines: script.map((text, i) => ({
+    text, speaker: compact(speakers[i]) || 'Narrator', direction: '',
   })) };
 }
 
+// A line's sentence, without the punctuation notes (sessions made before the
+// notes existed have none).
+const lineSentence = (line) => stripSpokenPunctuation(line.text);
+export const sessionSaysPunctuation = (session) => (session?.lines || []).some((line) => hasSpokenPunctuation(line.text));
+
 export function validateSession(session, plan, requireApproved = false) {
   if (!Array.isArray(session?.lines) || session.lines.length !== plan.length
-    || session.lines.some((line, i) => compact(line.text) !== compact(plan[i].sentence))) {
+    || session.lines.some((line, i) => lineSentence(line) !== compact(plan[i].sentence))) {
     throw new Error('This session does not match the dictation sentence by sentence. Use the original passage or create a matching session.');
   }
   if (requireApproved && session.lines.some((line) => line.status !== 'ok' || !line.take?.key)) {
@@ -47,10 +61,25 @@ export function validateSession(session, plan, requireApproved = false) {
 
 export function sessionPassage(session) {
   if (!Array.isArray(session?.lines) || !session.lines.length || session.lines.some((line) =>
-    splitIntoSentences(line.text).length !== 1)) {
+    splitIntoSentences(lineSentence(line)).length !== 1)) {
     throw new Error('Use a session with one complete sentence per line for dictation.');
   }
-  return session.lines.map((line) => compact(line.text)).join('\n');
+  const sentences = session.lines.map(lineSentence);
+  // Notes say where paragraphs end: keep each paragraph on one line, as long
+  // as the passage still splits into exactly these sentences.
+  if (sessionSaysPunctuation(session)) {
+    const lines = [];
+    let current = [];
+    session.lines.forEach((line, i) => {
+      current.push(sentences[i]);
+      if (endsParagraph(line.text)) { lines.push(current.join(' ')); current = []; }
+    });
+    if (current.length) lines.push(current.join(' '));
+    const passage = lines.join('\n');
+    const again = splitIntoSentences(passage);
+    if (again.length === sentences.length && again.every((s, i) => compact(s) === sentences[i])) return passage;
+  }
+  return sentences.join('\n');
 }
 
 export function takeUrl(sessionId, key) {

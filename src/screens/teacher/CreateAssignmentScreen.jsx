@@ -133,7 +133,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
     );
   }
 
-  if (phase === 'studio') return <AudioSplitStudio onSessionPassage={setPassage} title={title} requireServer={requireServer} plan={plan} lang={lang} rate={rate} mode={mode}
+  if (phase === 'studio') return <AudioSplitStudio onSessionPassage={setPassage} passage={passage} title={title} requireServer={requireServer} plan={plan} lang={lang} rate={rate} mode={mode}
     onCancel={() => setPhase('form')}
     onAccept={async (prepared) => { preparedAudio.current = prepared; await handleCreate(); }} />;
 

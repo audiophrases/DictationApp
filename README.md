@@ -71,14 +71,24 @@ Listening Studio. Enter the PinPlay teacher password (kept in memory), create a
 session with one complete sentence per line and an actor name for each, then
 share the whole-passage or actor-specific recorder link. Actors record on their
 own phone/computer; no installation or login is needed. Dictation sessions
-turn off volunteer text editing so the answer key stays aligned.
+turn off volunteer text editing so the answer key stays aligned. Each line
+shows the punctuation the actor says aloud in square brackets, in the
+dictation's language (`src/lib/spokenPunctuation.js`): periods, question and
+exclamation marks, colons, semicolons, quotation marks and new paragraphs (a
+line break in the passage), e.g. `He said: [colon] [open quote] “Stop.”
+[period] [close quote]`, `The end. [period] [new paragraph]`, Catalan `[punt i a
+part]`, Spanish `[punto y aparte]`, `[abre interrogación] ¿…? [cierra
+interrogación]`. Commas are not said. The notes are removed again when takes
+are matched to sentences, so a passage's own brackets such as `[sic]` still
+match, and sessions made before the notes still work.
 
 Use **Refresh takes**, preview each recording, adjust its automatic silence
 trim, then **Approve take** or **Request redo**. Once all takes are approved,
 open the splitting studio: the original phrase logic is retained, but human
 audio has estimated timing, so each sentence requires a listening check. Move
-words or adjust cut times as usual. Human audio keeps the actor's pace; notebook
-punctuation cues can optionally be added with TTS. Takes are copied into the
+words or adjust cut times as usual. Human audio keeps the actor's pace; for
+sessions made before the bracket notes, notebook punctuation cues can
+optionally be added with TTS (sessions with notes already say them). Takes are copied into the
 assignment on save; subsequent PinPlay retakes do not change a published
 assignment automatically.
 

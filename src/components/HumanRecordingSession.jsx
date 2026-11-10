@@ -1,10 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import AudioSplitStudio from './AudioSplitStudio';
-import { actorLink, sessionRequest, sessionFields, validateSession, loadTake, trimTake, autoTrim, sessionPassage } from '../lib/pinplaySessions';
+import {
+  actorLink, sessionRequest, sessionFields, sessionSaysPunctuation, sessionScript, validateSession, loadTake, trimTake,
+  autoTrim, sessionPassage,
+} from '../lib/pinplaySessions';
 import { prepareHumanSentenceRecording } from '../lib/notebookAudio';
 import { wavClip } from '../lib/notebookWav';
 
-export default function HumanRecordingSession({ plan, title, lang, rate, mode, onCancel, onAccept, acceptLabel, segmentChangeNotice, requireServer, onSessionPassage }) {
+export default function HumanRecordingSession({ plan, passage, title, lang, rate, mode, onCancel, onAccept, acceptLabel, segmentChangeNotice, requireServer, onSessionPassage }) {
+  const script = useMemo(() => sessionScript(plan, { lang, passage }), [plan, lang, passage]);
   const [password, setPassword] = useState('');
   const [sessions, setSessions] = useState(null);
   const [session, setSession] = useState(null);
@@ -87,13 +91,15 @@ export default function HumanRecordingSession({ plan, title, lang, rate, mode, o
     const cueCache = new Map();
     const results = [];
     try {
-      if (punctuation) requireServer?.();
+      // Actors who said the punctuation need no TTS cue after them.
+      const addCues = punctuation && !sessionSaysPunctuation(latest);
+      if (addCues) requireServer?.();
       for (let i = 0; i < plan.length; i++) {
         setMessage(`Preparing sentence ${i + 1} of ${plan.length}…`);
         const line = latest.lines[i];
         const buffer = trimTake(await bufferFor(line, context, signal), line.trim, context);
         results.push(await prepareHumanSentenceRecording(plan[i], buffer, {
-          lang, rate, context, cueCache, punctuation, signal,
+          lang, rate, context, cueCache, punctuation: addCues, signal,
         }));
         if (signal.aborted) return;
       }
@@ -121,14 +127,14 @@ export default function HumanRecordingSession({ plan, title, lang, rate, mode, o
       </li>)}{!sessions.length && <li>No recording sessions yet.</li>}</ul>}
       <details open={!sessions && plan.length > 0} style={{ margin: '1rem 0' }}><summary>Create a session for this dictation</summary>
         <label className="field-label">Session title<input value={sessionTitle} maxLength={120} disabled={busy} onChange={(e) => setSessionTitle(e.target.value)} /></label>
-        <p className="field-hint">Use the same actor name throughout for one reader, or assign different sentences to different actors. Actors record the words exactly as written. Sentence text editing is disabled for this session.</p>
+        <p className="field-hint">Use the same actor name throughout for one reader, or assign different sentences to different actors. Actors read each line as written, saying the punctuation shown in [brackets]. Sentence text editing is disabled for this session.</p>
         <ol>{plan.map((part, i) => <li key={i} style={{ margin: '0.75rem 0' }}>
-          <p>{part.sentence}</p>
+          <p>{script[i]}</p>
           <label>Actor for sentence {i + 1}<input maxLength={40} value={speakers[i]} disabled={busy}
             onChange={(e) => setSpeakers((items) => items.map((item, j) => j === i ? e.target.value : item))} /></label>
         </li>)}</ol>
         <button className="btn-primary" disabled={busy || !password || !plan.length} onClick={() => run(async (signal) => {
-          const { session: next } = await api('create', sessionFields(plan, speakers, sessionTitle), signal);
+          const { session: next } = await api('create', sessionFields(plan, speakers, sessionTitle, { lang, passage }), signal);
           validateSession(next, plan); setSession(next);
         })}>Create recording session</button>
       </details>
@@ -161,7 +167,7 @@ export default function HumanRecordingSession({ plan, title, lang, rate, mode, o
           </label>)}
         </>}
       </li>)}</ol>
-      {mode === 'notebook' && <label style={{ display: 'block', margin: '1rem 0' }}>
+      {mode === 'notebook' && !sessionSaysPunctuation(session) && <label style={{ display: 'block', margin: '1rem 0' }}>
         <input type="checkbox" checked={punctuation} disabled={busy} onChange={(e) => setPunctuation(e.target.checked)} /> Add TTS punctuation cues after the human sentences
       </label>}
       <p className="field-hint">Human speech keeps the actor’s pace. Phrase cuts are estimates: listen and adjust them in the splitting studio.</p>

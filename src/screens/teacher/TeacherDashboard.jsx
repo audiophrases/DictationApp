@@ -102,7 +102,8 @@ function TeacherDashboard({ onCreate, onOpen, onExit }) {
                     <td>{formatDate(a.dueAt)}</td>
                     <td>{a.sentenceCount}</td>
                     <td>
-                      <span className={`status-pill status-${a.status}`}>{a.status}</span>
+                      <span className={`status-pill status-${a.status}`} title={a.recording ? 'Voice actors are recording it; load the takes when they finish' : undefined}>
+                        {a.status === 'draft' && a.recording ? 'waiting for actors' : a.status}</span>
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end' }}>

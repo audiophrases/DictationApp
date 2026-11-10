@@ -7,11 +7,22 @@ import {
 import { prepareHumanSentenceRecording } from '../lib/notebookAudio';
 import { wavClip } from '../lib/notebookWav';
 
-export default function HumanRecordingSession({ plan, passage, title, lang, rate, mode, onCancel, onAccept, acceptLabel, segmentChangeNotice, splitNote, requireServer, onSessionPassage }) {
+/**
+ * The assignment and the recording session are made together, so the
+ * teacher can come back for the takes days later from the assignment:
+ *   createDraft()           → the assignment's code, made before the session
+ *   onSessionCreated(session, code) → remembers the session on the draft
+ *   draftCode               → the draft this session belongs to (shown)
+ *   sessionId               → a session remembered earlier: offered to load first
+ *   onFinishLater()         → leaves while the actors record
+ */
+export default function HumanRecordingSession({ plan, passage, title, lang, rate, mode, onCancel, onAccept, acceptLabel, segmentChangeNotice, splitNote, requireServer, onSessionPassage,
+  createDraft, onSessionCreated, draftCode = '', sessionId = '', onFinishLater }) {
   const script = useMemo(() => sessionScript(plan, { lang, passage }), [plan, lang, passage]);
   const [password, setPassword] = useState('');
   const [sessions, setSessions] = useState(null);
   const [session, setSession] = useState(null);
+  const [otherSession, setOtherSession] = useState(false); // a remembered session, but the teacher wants another
   const [speakers, setSpeakers] = useState(() => plan.map(() => 'Narrator'));
   const [sessionTitle, setSessionTitle] = useState(title || 'Dictation recording');
   const [busy, setBusy] = useState(false);
@@ -184,11 +195,19 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
       <p className="field-hint">Used only for PinPlay session requests; kept in memory for this visit.</p>
       {error && <p className="fetch-error" role="alert">{error}</p>}
       {message && <p role="status">{message}</p>}
+      {sessionId && !otherSession ? <div className="session-next">
+        <p><strong>This assignment is waiting for its voice actors.</strong> Their recording session is saved with it.</p>
+        <div className="edit-actions">
+          <button className="btn-primary" disabled={busy || !password} onClick={() => run((signal) => open(sessionId, signal))}>Load the takes</button>
+          <button className="btn-ghost btn-small" disabled={busy} onClick={() => setOtherSession(true)}>Use another session</button>
+        </div>
+      </div> : <>
       <button className="btn-ghost" disabled={busy || !password} onClick={() => run(async (signal) => setSessions((await api('list', {}, signal)).sessions || []))}>Load existing PinPlay sessions</button>
       {sessions && <ul>{sessions.map((item) => <li key={item.id} style={{ margin: '0.5rem 0' }}>
         <button className="btn-ghost" disabled={busy} onClick={() => run((signal) => open(item.id, signal))}>{item.title} · {item.recorded ?? item.approved}/{item.total} recorded</button>
       </li>)}{!sessions.length && <li>No recording sessions yet.</li>}</ul>}
       <details open={!sessions && plan.length > 0} style={{ margin: '1rem 0' }}><summary>Create a session for this dictation</summary>
+        {createDraft && <p className="field-hint">The assignment is created with the session, as a draft students can’t see yet. Fill in its title, class, due date and settings first. You can then close this page and come back for the takes from Assignments.</p>}
         <label className="field-label">Session title<input value={sessionTitle} maxLength={120} disabled={busy} onChange={(e) => setSessionTitle(e.target.value)} /></label>
         <p className="field-hint">Use the same actor name throughout for one reader, or assign different sentences to different actors. Actors read each line as written, saying the punctuation shown in [brackets]. Sentence text editing is disabled for this session.</p>
         <ol>{plan.map((part, i) => <li key={i} style={{ margin: '0.75rem 0' }}>
@@ -197,15 +216,27 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
             onChange={(e) => setSpeakers((items) => items.map((item, j) => j === i ? e.target.value : item))} /></label>
         </li>)}</ol>
         <button className="btn-primary" disabled={busy || !password || !plan.length} onClick={() => run(async (signal) => {
-          const { session: next } = await api('create', sessionFields(plan, speakers, sessionTitle, { lang, passage }), signal);
-          validateSession(next, plan); setSession(next);
-        })}>Create recording session</button>
+          const fields = sessionFields(plan, speakers, sessionTitle, { lang, passage });
+          // The assignment first: a session nobody can find again is the
+          // problem this solves, and a draft without a session is just a draft.
+          const code = draftCode || (createDraft ? await createDraft() : '');
+          const { session: next } = await api('create', fields, signal);
+          validateSession(next, plan);
+          if (onSessionCreated) await onSessionCreated(next, code);
+          setSession(next);
+        })}>{createDraft ? 'Create assignment and recording session' : 'Create recording session'}</button>
       </details>
+      </>}
     </> : <>
       <div className="session-heading">
         <h3>{session.title}</h3>
-        <button className="btn-ghost btn-small" disabled={busy} onClick={() => { stop(); cache.current.clear(); setSession(null); setTrims({}); setStudio(null); }}>Choose another session</button>
+        <button className="btn-ghost btn-small" disabled={busy} onClick={() => { stop(); cache.current.clear(); setSession(null); setTrims({}); setStudio(null); setOtherSession(true); }}>Choose another session</button>
       </div>
+      {draftCode && !progress.ready && <div className="session-next">
+        <p><strong>Assignment {draftCode} is saved as a draft</strong>, with this session. Students can’t see it yet.</p>
+        <p className="field-hint">Share the links below with your actors. When they have finished, open the assignment from the Assignments list: <strong>Load the takes</strong> brings you back here.</p>
+        {onFinishLater && <div className="edit-actions"><button className="btn-ghost" disabled={busy} onClick={onFinishLater}>Done for now · back to Assignments</button></div>}
+      </div>}
       {nextStep(true)}
       <details open={!progress.ready} style={{ margin: '1rem 0' }}><summary>Links for the actors</summary>
         <p>Actors can record from these links without signing in. Anyone with a link can view the script and record lines.</p>

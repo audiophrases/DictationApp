@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Copy, Loader2, Pencil, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Copy, Loader2, Mic, Pencil, RefreshCw } from 'lucide-react';
 import { getAssignment, releaseCorrections } from '../../lib/assignmentApi';
 import { accuracyClass } from '../../lib/score';
 import { studentLink } from '../../lib/appLinks';
@@ -12,7 +12,7 @@ function formatWhen(ms) {
   });
 }
 
-function AssignmentDetail({ code, onBack, onEdit, onOpenAttempt }) {
+function AssignmentDetail({ code, onBack, onEdit, onLoadTakes, onOpenAttempt }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [releasing, setReleasing] = useState(false);
@@ -83,6 +83,11 @@ function AssignmentDetail({ code, onBack, onEdit, onOpenAttempt }) {
           <div className="empty-note"><Loader2 size={22} className="spin" /></div>
         ) : (
           <>
+            {record.status === 'draft' && record.recording?.sessionId && <div className="session-next" style={{ marginBottom: '1.5rem' }}>
+              <p><strong>Waiting for the voice actors.</strong> This draft is recorded through a PinPlay recording session; students can’t see it yet.</p>
+              <p className="field-hint">When the actors have finished, load their takes, adjust the phrase splits and save: the assignment then goes live.</p>
+              <div className="edit-actions"><button className="btn-primary" onClick={onLoadTakes}><Mic size={18} /> Load the takes</button></div>
+            </div>}
             {record.mode === 'notebook' && <div className="sentence-card" style={{ marginBottom: '1.5rem' }}>
               <h2 style={{ fontSize: '1.1rem' }}>Notebook corrections</h2>
               <p className="field-hint">Release the passage when students are ready to correct their notebooks. Students who have finished can reopen this assignment to see it.</p>

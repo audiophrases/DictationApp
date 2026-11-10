@@ -1097,6 +1097,33 @@ const del = await call('/api/teacher/assignments/delete', {
   method: 'POST', body: { password: PASSWORD, code },
 });
 check('assignment deleted', del.status === 200);
+// A draft waiting for voice actors remembers its PinPlay recording session,
+// and may become a phrase dictation when the teacher splits its sentences.
+const waiting = await teacher('assignments/create', {
+  text: 'Moving abroad helped him. It was hard.', title: 'Actors', recording: { sessionId: 'abcd234567' },
+});
+const waitingCode = waiting.payload.code;
+check('a draft can be created with its recording session', waiting.status === 200
+  && waiting.payload.record.recording?.sessionId === 'abcd234567' && waiting.payload.record.status === 'draft'
+  && waiting.payload.record.delivery === 'sentences');
+const listedWaiting = (await teacher('assignments/list', {})).payload.assignments.find((a) => a.code === waitingCode);
+check('the list says it is waiting for actors', listedWaiting?.recording === true && listedWaiting.status === 'draft');
+check('a bad session id is refused', (await teacher('assignments/update-settings', { code: waitingCode, recording: { sessionId: '../x' } })).status === 400);
+const split = await teacher('assignments/update-content', {
+  code: waitingCode, text: 'Moving abroad helped him. It was hard.', delivery: 'phrases',
+  segments: ['Moving abroad', 'helped him.', 'It was hard.'],
+});
+check('splitting a draft turns it into a phrase dictation', split.status === 200
+  && split.payload.record.delivery === 'phrases' && split.payload.sentences.length === 3);
+await publishTyped(waitingCode, 3);
+const forgot = await teacher('assignments/update-settings', { code: waitingCode, recording: null });
+check('the session is forgotten once the takes are saved', forgot.status === 200 && forgot.payload.record.recording === null
+  && (await teacher('assignments/list', {})).payload.assignments.find((a) => a.code === waitingCode).recording === false);
+check('a published assignment keeps its delivery when its text changes', (await teacher('assignments/update-content', {
+  code: waitingCode, text: 'New text here.', delivery: 'sentences',
+})).payload.record.delivery === 'phrases');
+await call('/api/teacher/assignments/delete', { method: 'POST', body: { password: PASSWORD, code: waitingCode } });
+
 await call('/api/teacher/assignments/delete', {
   method: 'POST', body: { password: PASSWORD, code: ipaCode },
 });

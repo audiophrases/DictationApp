@@ -109,6 +109,18 @@ for that delivery. An existing full-sentence assignment can't be converted
 from **Edit**: the studio explains, and nothing is changed until the phrases
 are merged back.
 
+**The assignment is created together with the recording session.** In **New
+assignment**, fill in the title, class, due date and settings, then **Human
+voices → Create assignment and recording session**: the assignment is saved
+at once as a draft (students can't see it) with the session's id on it
+(`record.recording`, worker `recordingFrom`), and **Done for now** returns to
+the list. The list shows it as **waiting for actors**; opening it offers
+**Load the takes**, which opens Edit straight onto that session (password,
+**Load the takes**, **Open splitting studio**). **Save recordings and
+publish** uploads the phrases, forgets the session and publishes. A draft
+split into phrases there becomes a phrase dictation (the worker accepts a
+`delivery` on `update-content` only while the record is a draft).
+
 Sessions persist in PinPlay and can be reopened later with **Load existing
 PinPlay sessions**. With an empty passage, selecting a session imports its text;
 with a passage already entered, it must match sentence for sentence. Existing

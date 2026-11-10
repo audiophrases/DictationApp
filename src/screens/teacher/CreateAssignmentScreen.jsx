@@ -2,7 +2,8 @@ import { useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, Copy, Loader2, Mic, RefreshCw } from 'lucide-react';
 import { SPEEDS, LANGUAGES, REPLAY_LIMITS, FEEDBACK_MODES } from '../../lib/options';
 import { DEFAULT_GRADING_OPTIONS } from '../../lib/grading';
-import { createAssignment, publishAssignment } from '../../lib/assignmentApi';
+import { createAssignment, publishAssignment, updateAssignmentContent, updateAssignmentSettings } from '../../lib/assignmentApi';
+import { sameSegmentPlan } from '../../lib/notebookShared';
 import { recordSentences } from '../../lib/buildAssignment';
 import { studentLink } from '../../lib/appLinks';
 import AudioSplitStudio from '../../components/DictationAudioWorkflow';
@@ -40,6 +41,11 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
   const preparedAudio = useRef(null);
   const [phase, setPhase] = useState('form'); // form | studio | recording | done
   const [code, setCode] = useState('');
+  // Made when a voice-actor recording session is created, so the assignment
+  // exists (as a draft) while the actors record and the takes can be loaded
+  // from it later. Its sentences as the server stored them.
+  const [draftCode, setDraftCode] = useState('');
+  const draftSentences = useRef(null);
   const [sentences, setSentences] = useState([]);
   const [recorded, setRecorded] = useState(0);
   const [failed, setFailed] = useState([]);
@@ -53,11 +59,29 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
 
   async function finish(assignmentCode) {
     try {
+      // The audio is in: the draft no longer waits for its actors.
+      if (assignmentCode === draftCode) await updateAssignmentSettings(assignmentCode, { recording: null });
       await publishAssignment(assignmentCode);
       setPhase('done');
     } catch (err) {
       setError(err.message);
     }
+  }
+
+  const fields = () => ({
+    text: passage, mode, delivery, segments, title, className, dueAt: endOfDay(due),
+    attemptsLimit, maxListens, feedbackMode, lang, rate, allowSlowdown, grading,
+  });
+
+  // The draft behind a recording session: created before the session, so
+  // the session is never left without an assignment to come back to.
+  async function createDraft() {
+    const { code: newCode, sentences: list } = await createAssignment(fields());
+    setCode(newCode); setDraftCode(newCode); draftSentences.current = list;
+    return newCode;
+  }
+  async function rememberSession(session, assignmentCode) {
+    await updateAssignmentSettings(assignmentCode, { recording: { sessionId: session.id } });
   }
 
   async function record(assignmentCode, list, only) {
@@ -93,22 +117,21 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
     const finalDelivery = reviewedDelivery(delivery, sentenceCount, preparedAudio.current?.segments);
     if (finalDelivery !== delivery) setDelivery(finalDelivery);
     try {
-      const { code: newCode, sentences: list } = await createAssignment({
-        text: passage,
-        mode,
-        delivery: finalDelivery,
-        segments: preparedAudio.current?.segments || segments,
-        title,
-        className,
-        dueAt: endOfDay(due),
-        attemptsLimit,
-        maxListens,
-        feedbackMode,
-        lang,
-        rate,
-        allowSlowdown,
-        grading,
-      });
+      const reviewed = preparedAudio.current?.segments || segments;
+      let newCode = draftCode;
+      let list = draftSentences.current;
+      if (draftCode) {
+        // The draft already exists: give it the reviewed phrases if they
+        // differ from what it stored (nobody has started it, nothing is lost).
+        if (finalDelivery !== delivery || !sameSegmentPlan(list, reviewed)) {
+          ({ sentences: list } = await updateAssignmentContent(draftCode, { text: passage, segments: reviewed, lang, rate, delivery: finalDelivery }));
+          draftSentences.current = list;
+        }
+        // Settings the teacher may have changed since the draft was made.
+        await updateAssignmentSettings(draftCode, { title, className, dueAt: endOfDay(due), attemptsLimit, maxListens, feedbackMode, allowSlowdown, grading });
+      } else {
+        ({ code: newCode, sentences: list } = await createAssignment({ ...fields(), delivery: finalDelivery, segments: reviewed }));
+      }
       createdCode = newCode;
       setCode(newCode);
       setSentences(list);
@@ -138,6 +161,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
   }
 
   if (phase === 'studio') return <AudioSplitStudio onSessionPassage={setPassage} passage={passage} title={title} requireServer={requireServer} plan={plan} lang={lang} rate={rate} mode={mode}
+    createDraft={createDraft} onSessionCreated={rememberSession} draftCode={draftCode} onFinishLater={onFinished}
     splitNote={delivery === 'sentences' ? 'You split sentences into phrases, so this becomes a phrase dictation: students hear one phrase at a time (“Short phrases”).' : ''}
     onCancel={() => setPhase('form')}
     onAccept={async (prepared) => { preparedAudio.current = prepared; await handleCreate(); }} />;

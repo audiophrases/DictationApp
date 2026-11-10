@@ -31,7 +31,7 @@ const endOfDay = (value) => {
  * amounts — a setting is instant, a recording takes a while, and new text
  * clears every student's work.
  */
-function EditAssignmentScreen({ code, onBack, requireServer }) {
+function EditAssignmentScreen({ code, onBack, requireServer, loadTakes = false }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
 
@@ -60,7 +60,7 @@ function EditAssignmentScreen({ code, onBack, requireServer }) {
           <button className="btn-ghost btn-small" onClick={onBack}><ArrowLeft size={15} /> Back to the class</button>
         </div>
         <SettingsSection code={code} data={data} onSaved={load} />
-        <RecordingsSection code={code} data={data} onSaved={load} requireServer={requireServer} />
+        <RecordingsSection code={code} data={data} onSaved={load} requireServer={requireServer} loadTakes={loadTakes} />
         <TextSection code={code} data={data} onSaved={load} requireServer={requireServer} />
       </div>
     </div>
@@ -171,13 +171,16 @@ function SettingsSection({ code, data, onSaved }) {
   );
 }
 
-const SPLIT_SENTENCES_NOTE = 'This assignment is read in full sentences, so it can’t be saved with sentences split into phrases. Use “Merge into one phrase” on the split sentences, or make a new assignment from the same recordings: splitting there turns it into a phrase dictation.';
+const SPLIT_DRAFT_NOTE = 'You split sentences into phrases, so this draft becomes a phrase dictation when you save: students hear one phrase at a time (“Short phrases”).';
+const SPLIT_SENTENCES_NOTE ='This assignment is read in full sentences, so it can’t be saved with sentences split into phrases. Use “Merge into one phrase” on the split sentences, or make a new assignment from the same recordings: splitting there turns it into a phrase dictation.';
 
-function RecordingsSection({ code, data, onSaved, requireServer }) {
+function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
   const { record, sentences } = data;
   const unit = dictationUnit(record);
   const fullSentences = deliveryFor(record) === 'sentences';
-  const [studio, setStudio] = useState(false);
+  const sessionId = record.recording?.sessionId || '';
+  const draft = record.status === 'draft';
+  const [studio, setStudio] = useState(loadTakes && !!sessionId);
   const savedStudioSegments = useRef(null);
   const studioPlan = useMemo(() => segmentGroups(sentences).map((group) => ({
     sentence: group.sentence, segments: sentences.slice(group.start, group.start + group.count),
@@ -244,26 +247,34 @@ function RecordingsSection({ code, data, onSaved, requireServer }) {
   }
 
   if (studio) return <AudioSplitStudio title={record.title} passage={data.text} requireServer={requireServer} plan={studioPlan} lang={record.settings.lang} rate={rate} mode={record.mode}
-    segmentChangeNotice="I understand that moving words changes the expected answers and resets student attempts, scores and released corrections for this assignment."
-    acceptLabel="Save reviewed recordings" onCancel={() => { setStudio(false); savedStudioSegments.current = null; onSaved(); }}
-    splitNote={fullSentences ? SPLIT_SENTENCES_NOTE : ''}
+    segmentChangeNotice={draft ? '' : 'I understand that moving words changes the expected answers and resets student attempts, scores and released corrections for this assignment.'}
+    acceptLabel={draft ? 'Save recordings and publish' : 'Save reviewed recordings'} onCancel={() => { setStudio(false); savedStudioSegments.current = null; onSaved(); }}
+    initialSource={draft && sessionId ? 'human' : ''} sessionId={sessionId}
+    splitNote={fullSentences ? (draft ? SPLIT_DRAFT_NOTE : SPLIT_SENTENCES_NOTE) : ''}
     onAccept={async (prepared) => {
+      const split = fullSentences && prepared.segments.length > studioPlan.length;
       // Checked before anything is changed: the server would replace the text
-      // (clearing every recording) and then refuse the phrases.
-      if (fullSentences && prepared.segments.length > studioPlan.length) throw new Error(SPLIT_SENTENCES_NOTE);
+      // (clearing every recording) and then refuse the phrases. A draft nobody
+      // has started simply becomes a phrase dictation.
+      if (split && !draft) throw new Error(SPLIT_SENTENCES_NOTE);
       const changed = !sameSegmentPlan(sentences, prepared.segments);
       let stored = savedStudioSegments.current || sentences;
       if (!sameSegmentPlan(stored, prepared.segments)) {
         const result = await updateAssignmentContent(code, {
           text: data.text, segments: prepared.segments, lang: record.settings.lang, rate,
+          ...(split ? { delivery: 'phrases' } : {}),
         });
         stored = result.sentences;
         savedStudioSegments.current = stored;
       }
       const failed = await uploadPreparedClips(code, stored, prepared);
       if (failed.length) throw new Error(`Recordings ${failed.map((i) => i + 1).join(', ')} could not be saved. Keep this studio open and retry saving. Other recordings were saved.`);
-      if (rate !== record.settings?.rate) await updateAssignmentSettings(code, { rate });
-      if (changed || savedStudioSegments.current || record.status === 'draft') await publishAssignment(code);
+      const settings = {};
+      if (rate !== record.settings?.rate) settings.rate = rate;
+      // The audio is in: the assignment no longer waits for its actors.
+      if (sessionId) settings.recording = null;
+      if (Object.keys(settings).length) await updateAssignmentSettings(code, settings);
+      if (changed || savedStudioSegments.current || draft) await publishAssignment(code);
       setStudio(false);
       savedStudioSegments.current = null;
       setDone(new Set(sentences.map((_, i) => i)));
@@ -273,7 +284,10 @@ function RecordingsSection({ code, data, onSaved, requireServer }) {
   return (
     <section className="edit-section">
       <h2>Recordings</h2>
-      <p className="field-hint">Same text, new voice recording: all of it, for example at another speed, or one {unit} that sounds wrong. Students hear the new recording from their next play.</p>
+      {draft && sessionId ? <div className="session-next">
+        <p><strong>Waiting for the voice actors.</strong> Their PinPlay recording session is saved with this draft.</p>
+        <div className="edit-actions"><button className="btn-primary" onClick={() => { player.current?.pause(); setStudio(true); }} disabled={busy !== null}><Mic size={18} /> Load the takes</button></div>
+      </div> : <p className="field-hint">Same text, new voice recording: all of it, for example at another speed, or one {unit} that sounds wrong. Students hear the new recording from their next play.</p>}
       <div className="edit-actions" style={{ justifyContent: 'flex-start' }}>
         <label className="notebook-speed">
           Voice speed

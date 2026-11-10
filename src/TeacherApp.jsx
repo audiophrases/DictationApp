@@ -25,6 +25,8 @@ function TeacherApp({ onExit }) {
   const [signedIn, setSignedIn] = useState(hasTeacherPassword);
   const [code, setCode] = useState('');
   const [attempt, setAttempt] = useState(null);
+  // Edit opened straight onto the voice actors' takes (a draft waiting for them).
+  const [loadTakes, setLoadTakes] = useState(false);
   const { waking, requireServer, dismiss } = useServerReady();
 
   if (!assignmentsAvailable()) {
@@ -68,8 +70,9 @@ function TeacherApp({ onExit }) {
     screen = (
       <EditAssignmentScreen
         code={code}
+        loadTakes={loadTakes}
         requireServer={requireServer}
-        onBack={() => setView('assignment')}
+        onBack={() => { setLoadTakes(false); setView('assignment'); }}
       />
     );
   } else if (view === 'attempt') {
@@ -85,7 +88,8 @@ function TeacherApp({ onExit }) {
       <AssignmentDetail
         code={code}
         onBack={() => setView('dashboard')}
-        onEdit={() => setView('edit')}
+        onEdit={() => { setLoadTakes(false); setView('edit'); }}
+        onLoadTakes={() => { setLoadTakes(true); setView('edit'); }}
         onOpenAttempt={(row) => {
           setAttempt(row);
           setView('attempt');

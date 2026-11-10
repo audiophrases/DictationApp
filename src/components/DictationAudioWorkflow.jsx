@@ -4,8 +4,8 @@ import HumanRecordingSession from './HumanRecordingSession';
 import ListeningStudioVoices from './ListeningStudioVoices';
 import { STUDIO_LANGUAGE_NAMES, studioLanguage } from '../lib/listeningStudio';
 
-export default function DictationAudioWorkflow({ requireServer, title, ...props }) {
-  const [source, setSource] = useState('');
+export default function DictationAudioWorkflow({ requireServer, title, initialSource = '', ...props }) {
+  const [source, setSource] = useState(initialSource);
   if (source === 'tts') return <AudioSplitStudio {...props} onCancel={() => setSource('')} />;
   if (source === 'studio') return <ListeningStudioVoices {...props} title={title} onCancel={() => setSource('')} />;
   if (source === 'human') return <HumanRecordingSession {...props} title={title} requireServer={requireServer} onCancel={() => setSource('')} />;

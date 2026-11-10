@@ -325,7 +325,21 @@ function assignmentMetadata(record) {
     due: String(record.dueAt || ''),
     created: String(record.createdAt),
     n: String(record.sentenceCount),
+    // A draft waiting for voice actors (see recordingFrom), so the list can
+    // say so without opening every record.
+    rec: record.recording ? '1' : '',
   };
+}
+
+// Where a dictation's audio is coming from while it is a draft: a PinPlay
+// recording session the actors are filling. Stored so the teacher can come
+// back days later and load the takes from the assignment itself. Null clears
+// it (the takes have been saved, or the teacher chose another voice).
+function recordingFrom(value) {
+  if (value === null) return null;
+  const sessionId = String(value?.sessionId || '').trim();
+  if (!/^[a-z0-9]{6,24}$/i.test(sessionId)) return undefined;
+  return { service: 'pinplay', sessionId };
 }
 
 async function saveAssignment(env, record) {
@@ -501,6 +515,7 @@ async function createAssignment(env, body) {
             ignoreAccents: gradingFlag(body.grading, 'ignoreAccents'),
           },
     source: body.source && typeof body.source === 'object' ? body.source : null,
+    recording: app === 'ipa' ? null : recordingFrom(body.recording) || null,
     sentences,
     sentenceCount: sentences.length,
   };
@@ -558,6 +573,7 @@ async function listAssignments(env, body) {
         dueAt: Number(meta.due) || null,
         createdAt: Number(meta.created) || 0,
         sentenceCount: Number(meta.n) || 0,
+        recording: meta.rec === '1',
       };
     })
     .filter((a) => a.app === app)
@@ -701,6 +717,11 @@ async function updateSettings(env, body) {
   if (has('practiceAfter')) record.practiceAfter = body.practiceAfter === true;
   // Recorded speed: sent after the teacher re-records the audio at a new one.
   if (has('rate')) record.settings.rate = Math.min(1.5, Math.max(0.5, Number(body.rate) || 1));
+  if (has('recording')) {
+    const recording = recordingFrom(body.recording);
+    if (recording === undefined) return fail('That is not a recording session.');
+    record.recording = recording;
+  }
 
   await saveAssignment(env, record);
   return json({ ok: true, record: publicRecord(record) });
@@ -715,8 +736,14 @@ async function updateContent(env, body) {
   const record = code ? await getJson(env.ASSIGN_BUCKET, recordKey(code)) : null;
   if (!record) return fail('Assignment not found.', 404);
   if (record.app === 'ipa') return fail('Reading assignments are edited in Speech to IPA.');
-  const content = assignmentSentences(body, { app: record.app, mode: record.mode, delivery: deliveryFor(record) });
+  // A draft nobody has started may still change how it is read: splitting a
+  // sentence in the splitting studio turns a full-sentence dictation into
+  // phrases. Once students have it, the delivery is part of what they did.
+  const delivery = record.status === 'draft' && record.mode !== 'notebook' && (body.delivery === 'phrases' || body.delivery === 'sentences')
+    ? body.delivery : deliveryFor(record);
+  const content = assignmentSentences(body, { app: record.app, mode: record.mode, delivery });
   if (content.error) return fail(content.error);
+  record.delivery = delivery;
 
   const objects = await listAll(env.ASSIGN_BUCKET, { prefix: `assign/${code}/` });
   const keys = objects.map((o) => o.key);

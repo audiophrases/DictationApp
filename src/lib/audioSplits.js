@@ -175,7 +175,7 @@ function newCut(recording, segments, splitIndex, lo, hi) {
 const ESTIMATED = 'A split was placed at a pause, without word timings. Listen to both phrases and adjust it by ear.';
 // A split made without word timings asks for a listening check, except in a
 // human take: those are cut by ear anyway, and the teacher asked for no check.
-const splitWarning = (recording, exact) => (exact || recording.source === 'human'
+const splitWarning = (recording, exact) => (exact || recording.source === 'human' || recording.source === 'reused'
   ? recording.warning : recording.warning || ESTIMATED);
 
 // direction -1 sends the left phrase's last word to the next phrase;

@@ -13,6 +13,7 @@ import { notebookPlan } from '../../lib/notebook';
 import { deliveryFor, dictationUnit } from '../../lib/delivery';
 import AudioSplitStudio from '../../components/DictationAudioWorkflow';
 import { segmentGroups, sameSegmentPlan } from '../../lib/notebookShared';
+import { regroupRecordings } from '../../lib/reuseAudio';
 import MarkingRules from '../../components/MarkingRules';
 
 const toDateInput = (ms) => {
@@ -73,6 +74,7 @@ function SettingsSection({ code, data, onSaved }) {
   const unit = dictationUnit(record);
   const handedIn = attempts.some((a) => a.submitted);
   const [form, setForm] = useState(() => ({
+    mode: record.mode,
     title: record.title,
     className: record.className || '',
     due: toDateInput(record.dueAt),
@@ -89,7 +91,13 @@ function SettingsSection({ code, data, onSaved }) {
   async function save() {
     setStatus({ saving: true, saved: false, error: '' });
     try {
+      const modeChange = form.mode !== record.mode;
+      if (modeChange && attempts.length && !window.confirm(`Changing the dictation mode clears the ${attempts.length} student attempt${attempts.length === 1 ? '' : 's'} so far. The text and recordings stay. Continue?`)) {
+        setStatus({ saving: false, saved: false, error: '' });
+        return;
+      }
       await updateAssignmentSettings(code, {
+        ...(modeChange ? { mode: form.mode } : {}),
         title: form.title,
         className: form.className,
         dueAt: endOfDay(form.due),
@@ -111,6 +119,14 @@ function SettingsSection({ code, data, onSaved }) {
     <section className="edit-section">
       <h2>Settings</h2>
       <p className="field-hint">Take effect straight away, for students who have started too.</p>
+      <div>
+        <label className="field-label" htmlFor="edit-mode">Dictation mode</label>
+        <select id="edit-mode" value={form.mode} onChange={(e) => set('mode', e.target.value)} style={{ width: '100%' }}>
+          <option value="typing">Type answers in the app</option>
+          <option value="notebook">Notebook — write by hand</option>
+        </select>
+        {form.mode !== record.mode && <p className="field-hint">The text and recordings are kept. Student attempts so far are cleared, because the two modes mean different things by an attempt.{form.mode === 'notebook' ? ' Sentence endings are only announced aloud if the recordings include them (human takes with punctuation notes, or notebook recordings).' : ''}</p>}
+      </div>
       <div className="settings-grid">
         <div><label className="field-label">Title</label><input value={form.title} onChange={(e) => set('title', e.target.value)} /></div>
         <div><label className="field-label">Class</label><input value={form.className} onChange={(e) => set('className', e.target.value)} /></div>
@@ -171,20 +187,42 @@ function SettingsSection({ code, data, onSaved }) {
   );
 }
 
-const SPLIT_DRAFT_NOTE = 'You split sentences into phrases, so this draft becomes a phrase dictation when you save: students hear one phrase at a time (“Short phrases”).';
-const SPLIT_SENTENCES_NOTE ='This assignment is read in full sentences, so it can’t be saved with sentences split into phrases. Use “Merge into one phrase” on the split sentences, or make a new assignment from the same recordings: splitting there turns it into a phrase dictation.';
+const SPLIT_DRAFT_NOTE = 'You split sentences into phrases, so this becomes a phrase dictation when you save: students hear one phrase at a time (“Short phrases”).';
 
 function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
   const { record, sentences } = data;
   const unit = dictationUnit(record);
-  const fullSentences = deliveryFor(record) === 'sentences';
   const sessionId = record.recording?.sessionId || '';
   const draft = record.status === 'draft';
   const [studio, setStudio] = useState(loadTakes && !!sessionId);
   const savedStudioSegments = useRef(null);
-  const studioPlan = useMemo(() => segmentGroups(sentences).map((group) => ({
+  const groups = useMemo(() => segmentGroups(sentences), [sentences]);
+  const studioPlan = useMemo(() => groups.map((group) => ({
     sentence: group.sentence, segments: sentences.slice(group.start, group.start + group.count),
-  })), [sentences]);
+  })), [groups, sentences]);
+  // How the re-cut audio should be read: the teacher may switch between
+  // phrases and full sentences here, keeping the recordings.
+  const currentDelivery = deliveryFor(record);
+  const [targetDelivery, setTargetDelivery] = useState(currentDelivery);
+  const reuse = useMemo(() => ({
+    label: 'Keep the current recordings',
+    hint: targetDelivery === currentDelivery
+      ? 'the audio this assignment already has, opened in the studio to adjust the splits again.'
+      : `the audio this assignment already has, re-cut as ${targetDelivery === 'phrases' ? 'short phrases' : 'full sentences'}.`,
+    load: async (signal, onProgress) => {
+      const context = new AudioContext({ sampleRate: 24000 });
+      try {
+        const buffers = [];
+        for (let i = 0; i < sentences.length; i++) {
+          onProgress(`Loading recording ${i + 1} of ${sentences.length}…`);
+          const blob = await fetchTeacherAudio(code, i);
+          if (signal.aborted) return [];
+          buffers.push(await context.decodeAudioData(await blob.arrayBuffer()));
+        }
+        return regroupRecordings(context, sentences, buffers, { lang: record.settings.lang, delivery: targetDelivery });
+      } finally { await context.close(); }
+    },
+  }), [code, sentences, record.settings.lang, targetDelivery, currentDelivery]);
   const [rate, setRate] = useState(record.settings?.rate ?? 1);
   const [busy, setBusy] = useState(null); // null | 'all' | index
   const [progress, setProgress] = useState('');
@@ -249,20 +287,18 @@ function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
   if (studio) return <AudioSplitStudio title={record.title} passage={data.text} requireServer={requireServer} plan={studioPlan} lang={record.settings.lang} rate={rate} mode={record.mode}
     segmentChangeNotice={draft ? '' : 'I understand that moving words changes the expected answers and resets student attempts, scores and released corrections for this assignment.'}
     acceptLabel={draft ? 'Save recordings and publish' : 'Save reviewed recordings'} onCancel={() => { setStudio(false); savedStudioSegments.current = null; onSaved(); }}
-    initialSource={draft && sessionId ? 'human' : ''} sessionId={sessionId}
-    splitNote={fullSentences ? (draft ? SPLIT_DRAFT_NOTE : SPLIT_SENTENCES_NOTE) : ''}
+    initialSource={draft && sessionId ? 'human' : ''} sessionId={sessionId} reuse={reuse} planChanged={targetDelivery !== currentDelivery}
+    splitNote={targetDelivery === 'sentences' ? SPLIT_DRAFT_NOTE : ''}
     onAccept={async (prepared) => {
-      const split = fullSentences && prepared.segments.length > studioPlan.length;
-      // Checked before anything is changed: the server would replace the text
-      // (clearing every recording) and then refuse the phrases. A draft nobody
-      // has started simply becomes a phrase dictation.
-      if (split && !draft) throw new Error(SPLIT_SENTENCES_NOTE);
-      const changed = !sameSegmentPlan(sentences, prepared.segments);
+      // Splitting any sentence makes a phrase dictation; otherwise the
+      // reading the teacher chose stands (the server clears attempts for any
+      // content change, and the tick box above said so).
+      const delivery = prepared.segments.length > groups.length ? 'phrases' : targetDelivery;
+      const changed = !sameSegmentPlan(sentences, prepared.segments) || delivery !== currentDelivery;
       let stored = savedStudioSegments.current || sentences;
-      if (!sameSegmentPlan(stored, prepared.segments)) {
+      if (changed && !savedStudioSegments.current) {
         const result = await updateAssignmentContent(code, {
-          text: data.text, segments: prepared.segments, lang: record.settings.lang, rate,
-          ...(split ? { delivery: 'phrases' } : {}),
+          text: data.text, segments: prepared.segments, lang: record.settings.lang, rate, delivery,
         });
         stored = result.sentences;
         savedStudioSegments.current = stored;
@@ -288,6 +324,18 @@ function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
         <p><strong>Waiting for the voice actors.</strong> Their PinPlay recording session is saved with this draft.</p>
         <div className="edit-actions"><button className="btn-primary" onClick={() => { player.current?.pause(); setStudio(true); }} disabled={busy !== null}><Mic size={18} /> Load the takes</button></div>
       </div> : <p className="field-hint">Same text, new voice recording: all of it, for example at another speed, or one {unit} that sounds wrong. Students hear the new recording from their next play.</p>}
+      <div className="edit-actions" style={{ justifyContent: 'flex-start' }}>
+        <label className="notebook-speed">
+          Read in
+          <select value={targetDelivery} onChange={(e) => setTargetDelivery(e.target.value)} disabled={busy !== null}>
+            <option value="sentences">Full sentences</option>
+            <option value="phrases">Short phrases (segmented)</option>
+          </select>
+        </label>
+        {targetDelivery !== currentDelivery && <span className="field-hint" style={{ margin: 0 }}>
+          Open the studio and choose <strong>Keep the current recordings</strong>: they are re-cut as {targetDelivery === 'phrases' ? 'phrases' : 'whole sentences'} and saved; student attempts start again.
+        </span>}
+      </div>
       <div className="edit-actions" style={{ justifyContent: 'flex-start' }}>
         <label className="notebook-speed">
           Voice speed

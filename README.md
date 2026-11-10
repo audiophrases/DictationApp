@@ -134,6 +134,19 @@ approved/redo state; only share recorder links with intended voice actors,
 since those links reveal the script. The same workflow is available under
 **Edit > Recordings > Open splitting studio**.
 
+An assignment's mode and reading can change after the fact without losing
+its text or recordings. **Edit > Settings > Dictation mode** switches between
+typed and notebook (worker `update-settings` with `mode`; attempts so far are
+cleared, since the two modes mean different things by an attempt). **Edit >
+Recordings > Read in** picks full sentences or short phrases; then **Open
+splitting studio > Keep the current recordings** loads the assignment's own
+clips (`src/lib/reuseAudio.js`: phrase clips are joined back into their
+sentences minus the lead-in silence, sentence clips are cut at pauses into
+the language's phrase plan), opens them in the studio, and saving re-publishes
+with the new reading (`update-content` accepts `delivery`). The same button
+also reopens existing audio just to adjust its splits. The worker accepts WAV
+as well as MP3 in every mode, since studio audio is WAV.
+
 Teachers can enable **Allow students to slow playback** when creating an
 assignment. Students then get a **Normal / Relaxed / Slow** dropdown in either
 typing or notebook mode. Normal uses the teacher's recorded pace; the slower

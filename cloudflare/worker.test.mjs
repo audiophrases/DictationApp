@@ -1119,9 +1119,29 @@ await publishTyped(waitingCode, 3);
 const forgot = await teacher('assignments/update-settings', { code: waitingCode, recording: null });
 check('the session is forgotten once the takes are saved', forgot.status === 200 && forgot.payload.record.recording === null
   && (await teacher('assignments/list', {})).payload.assignments.find((a) => a.code === waitingCode).recording === false);
-check('a published assignment keeps its delivery when its text changes', (await teacher('assignments/update-content', {
+check('a published assignment can be re-cut the other way with its text', (await teacher('assignments/update-content', {
   code: waitingCode, text: 'New text here.', delivery: 'sentences',
-})).payload.record.delivery === 'phrases');
+})).payload.record.delivery === 'sentences');
+check('WAV audio is accepted for a typed dictation too', (await call(`/api/teacher/assignments/${waitingCode}/audio/0`, {
+  method: 'PUT', headers: { 'Content-Type': 'audio/wav', 'X-Teacher-Password': PASSWORD }, raw: new Uint8Array([0x52, 0x49, 0x46]),
+})).status === 200);
+check('other audio types are still refused', (await call(`/api/teacher/assignments/${waitingCode}/audio/0`, {
+  method: 'PUT', headers: { 'Content-Type': 'audio/ogg', 'X-Teacher-Password': PASSWORD }, raw: new Uint8Array([1, 2, 3]),
+})).status === 415);
+// Typed ↔ notebook keeps text and audio; attempts go.
+await publishTyped(waitingCode, 1);
+await begin(waitingCode);
+const toNotebook = await teacher('assignments/update-settings', { code: waitingCode, mode: 'notebook' });
+check('a typed dictation becomes a notebook one, clearing attempts', toNotebook.status === 200
+  && toNotebook.payload.record.mode === 'notebook' && toNotebook.payload.record.feedbackMode === 'release'
+  && toNotebook.payload.cleared === 1 && toNotebook.payload.record.status === 'active');
+check('its text is kept for the corrections', (await teacher('assignments/get', { code: waitingCode })).payload.text === 'New text here.');
+const started = await begin(waitingCode);
+check('students start it as a notebook with the same audio', started.status === 200 && started.payload.meta.mode === 'notebook');
+const toTyping = await teacher('assignments/update-settings', { code: waitingCode, mode: 'typing' });
+check('and back to typed, with marking rules', toTyping.payload.record.mode === 'typing'
+  && toTyping.payload.record.feedbackMode === 'end' && toTyping.payload.record.grading && toTyping.payload.cleared === 1);
+check('an unknown mode is refused', (await teacher('assignments/update-settings', { code: waitingCode, mode: 'oral' })).status === 400);
 await call('/api/teacher/assignments/delete', { method: 'POST', body: { password: PASSWORD, code: waitingCode } });
 
 await call('/api/teacher/assignments/delete', {

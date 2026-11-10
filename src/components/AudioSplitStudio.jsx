@@ -64,7 +64,7 @@ function Waveform({ buffer, cuts, disabled, onMove, onPlay }) {
   </div>;
 }
 
-export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onAccept, acceptLabel = 'Use audio and create assignment', segmentChangeNotice = '', initialRecordings = null, backLabel = 'Back', splitNote = '' }) {
+export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onAccept, acceptLabel = 'Use audio and create assignment', segmentChangeNotice = '', initialRecordings = null, backLabel = 'Back', splitNote = '', planChanged = false }) {
   const [recordings, setRecordings] = useState([]);
   const [index, setIndex] = useState(0);
   const [error, setError] = useState('');
@@ -78,7 +78,9 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
   const player = useRef(null);
   const sequence = useRef(0);
   const recording = recordings[index];
-  const changedSegments = recordings.some((r) => !sameSegmentPlan(r.originalSegments, r.segments));
+  // planChanged: the recordings already arrived re-cut (phrases ↔ sentences),
+  // so what students answer changes even if nothing moves here.
+  const changedSegments = planChanged || recordings.some((r) => !sameSegmentPlan(r.originalSegments, r.segments));
   const phraseCount = recordings.reduce((n, r) => n + r.segments.length, 0);
   const originalCount = recordings.reduce((n, r) => n + r.originalSegments.length, 0);
 

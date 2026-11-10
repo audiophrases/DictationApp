@@ -722,9 +722,35 @@ async function updateSettings(env, body) {
     if (recording === undefined) return fail('That is not a recording session.');
     record.recording = recording;
   }
+  // Notebook ↔ typed in the app, keeping the text and every recording. The
+  // two modes mean different things by an attempt (a hand-written page vs
+  // typed, marked answers), so attempts are cleared, as a text edit does.
+  let cleared = 0;
+  if (has('mode') && body.mode !== record.mode) {
+    if (!['typing', 'notebook'].includes(body.mode)) return fail('Unknown dictation mode.');
+    const attempts = await listAll(env.ASSIGN_BUCKET, { prefix: `assign/${code}/attempts/` });
+    const keys = attempts.map((o) => o.key);
+    for (let i = 0; i < keys.length; i += 1000) await env.ASSIGN_BUCKET.delete(keys.slice(i, i + 1000));
+    cleared = keys.length;
+    record.extraAttempts = {};
+    record.mode = body.mode;
+    if (body.mode === 'notebook') {
+      record.feedbackMode = 'release';
+      record.correctionText = record.correctionText || record.sentences.join(' ');
+      record.correctionsReleased = false;
+    } else {
+      if (record.feedbackMode === 'release') record.feedbackMode = 'end';
+      record.correctionsReleased = false;
+      record.grading = record.grading || {
+        ignoreCase: gradingFlag(undefined, 'ignoreCase'),
+        ignorePunctuation: gradingFlag(undefined, 'ignorePunctuation'),
+        ignoreAccents: gradingFlag(undefined, 'ignoreAccents'),
+      };
+    }
+  }
 
   await saveAssignment(env, record);
-  return json({ ok: true, record: publicRecord(record) });
+  return json({ ok: true, record: publicRecord(record), cleared });
 }
 
 // New text for an existing dictation: same code and link, so nothing needs
@@ -736,11 +762,11 @@ async function updateContent(env, body) {
   const record = code ? await getJson(env.ASSIGN_BUCKET, recordKey(code)) : null;
   if (!record) return fail('Assignment not found.', 404);
   if (record.app === 'ipa') return fail('Reading assignments are edited in Speech to IPA.');
-  // A draft nobody has started may still change how it is read: splitting a
-  // sentence in the splitting studio turns a full-sentence dictation into
-  // phrases. Once students have it, the delivery is part of what they did.
-  const delivery = record.status === 'draft' && record.mode !== 'notebook' && (body.delivery === 'phrases' || body.delivery === 'sentences')
-    ? body.delivery : deliveryFor(record);
+  // How it is read may change with its content: splitting a sentence in the
+  // splitting studio turns a full-sentence dictation into phrases, and the
+  // teacher can re-cut the recordings the other way. Every attempt belonged
+  // to the old reading and goes with it, as for any content change.
+  const delivery = body.delivery === 'phrases' || body.delivery === 'sentences' ? body.delivery : deliveryFor(record);
   const content = assignmentSentences(body, { app: record.app, mode: record.mode, delivery });
   if (content.error) return fail(content.error);
   record.delivery = delivery;
@@ -1463,9 +1489,11 @@ async function route(request, env) {
 
       const index = parseIndex(segments[5], record.sentenceCount);
       if (index < 0) return fail('No such sentence.', 404);
+      // MP3 from the voice server, WAV from the splitting studio (human
+      // takes, Listening Studio voices, re-cut phrases): either, in any mode.
       const contentType = (request.headers.get('Content-Type') || '').split(';')[0].trim();
-      if (contentType !== 'audio/mpeg' && !(record.mode === 'notebook' && contentType === 'audio/wav')) {
-        return fail('Audio must be MP3, or WAV for notebook segments.', 415);
+      if (contentType !== 'audio/mpeg' && contentType !== 'audio/wav') {
+        return fail('Audio must be MP3 or WAV.', 415);
       }
 
       const bytes = await request.arrayBuffer();

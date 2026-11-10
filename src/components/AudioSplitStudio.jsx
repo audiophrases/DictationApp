@@ -82,6 +82,9 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, delivery = 'p
   // so what students answer changes even if nothing moves here.
   const changedSegments = planChanged || (delivery !== 'sentences' && recordings.some((r) => !sameSegmentPlan(r.originalSegments, r.segments)));
   const phraseCount = recordings.reduce((n, r) => n + r.segments.length, 0);
+  // Recordings whose cuts come from word timings (TTS always; human takes
+  // and studio voices when speech recognition could follow them).
+  const timed = recordings.filter((r) => r.boundaries?.length).length;
   const originalCount = recordings.reduce((n, r) => n + r.originalSegments.length, 0);
 
   useEffect(() => {
@@ -180,6 +183,8 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, delivery = 'p
     <h2>Dictation splitting studio</h2>
     <p className="field-hint">Listen to each sentence and its phrases. The automatic phrases are only a starting point: merge phrases that sound better together, split a long one between two words, move words across a split, and drag a split on the waveform to fine-tune the timing. Every change reuses the same recording, so the intonation is kept.</p>
     <p role="status">{loading ? `Generating full sentences: ${recordings.length} of ${plan.length}` : `${recordings.length} of ${plan.length} sentences ready`}
+      {!loading && timed > 0 && timed < recordings.length && ` · word timings found for ${timed}`}
+      {!loading && timed > 0 && timed === recordings.length && recordings.some((r) => r.source) && ' · word timings found'}
       {!loading && recordings.length > 0 && ` · ${phraseCount} phrase${phraseCount === 1 ? '' : 's'}${phraseCount !== originalCount ? ` (was ${originalCount})` : ''}`}
       {unchecked > 0 && ` · ${unchecked} to check by ear`}</p>
     {error && <p className="fetch-error" role="alert">{error}</p>}

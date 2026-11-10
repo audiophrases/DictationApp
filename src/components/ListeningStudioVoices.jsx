@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AudioSplitStudio from './AudioSplitStudio';
 import StudioVoiceFinder from './StudioVoiceFinder';
 import { takeRecording } from '../lib/notebookAudio';
+import { alignTakes } from '../lib/browserWhisper';
+import WordTimingsOption from './WordTimingsOption';
 import {
   NARRATOR, STUDIO_LANGUAGE_NAMES, bridgeAvailable, cueLines, defaultDescription,
   describeRecording, dictationScript, finishedLines, formFromRecording, lineId, matchesDictation, planKey,
@@ -23,6 +25,7 @@ export default function ListeningStudioVoices({ plan, title, lang, mode, onCance
   const [form, setForm] = useState(() => formFromRecording(null, lang));
   const [formTouched, setFormTouched] = useState(false);
   const [showVoice, setShowVoice] = useState(true);
+  const [timings, setTimings] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -219,7 +222,13 @@ export default function ListeningStudioVoices({ plan, title, lang, mode, onCance
         const index = cues.indexOf(cueLines([{ sentence }], lang, mode)[0]);
         return index < 0 ? null : buffers[plan.length + index];
       };
-      setReady(plan.map((part, i) => takeRecording(part, buffers[i], { cue: cueBuffer(part.sentence), source: 'studio', warning: STUDIO_WARNING })));
+      // Word timings from speech recognition in this browser: exact cuts, and
+      // no listening check to tick, for every sentence it could follow.
+      const found = timings ? await alignTakes(plan.map((part, i) => ({ sentence: part.sentence, buffer: buffers[i] })), lang, { onProgress: setMessage, signal }) : [];
+      if (signal.aborted) return;
+      setReady(plan.map((part, i) => takeRecording(part, buffers[i], {
+        cue: cueBuffer(part.sentence), source: 'studio', boundaries: found[i] || null, warning: found[i] ? '' : STUDIO_WARNING,
+      })));
       setMessage('');
     } finally { await context.close(); }
   });
@@ -296,6 +305,7 @@ export default function ListeningStudioVoices({ plan, title, lang, mode, onCance
           </li>)}
         </ol>
         {cues.length > 0 && <p className="field-hint">Punctuation cues in the same voice: {cues.join(' · ')}</p>}
+        <WordTimingsOption checked={timings} disabled={working} onChange={setTimings} />
         <button className="btn-primary" disabled={working} onClick={openSplitting}>Review the phrase splits</button>
       </>}
       {linesError && <p className="fetch-error" role="alert">{linesError}</p>}

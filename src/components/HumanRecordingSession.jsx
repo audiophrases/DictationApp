@@ -5,6 +5,8 @@ import {
   autoTrim, sessionPassage, sessionProgress, sessionTakesKey,
 } from '../lib/pinplaySessions';
 import { prepareHumanSentenceRecording } from '../lib/notebookAudio';
+import { alignTakes } from '../lib/browserWhisper';
+import WordTimingsOption from './WordTimingsOption';
 import { wavClip } from '../lib/notebookWav';
 
 /**
@@ -36,6 +38,7 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
   const [studio, setStudio] = useState(null); // { key, recordings }
   const [inStudio, setInStudio] = useState(false);
   const [punctuation, setPunctuation] = useState(false);
+  const [timings, setTimings] = useState(true);
   const cache = useRef(new Map());
   const controller = useRef(null);
   const player = useRef(null);
@@ -104,7 +107,7 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
   }
   // Actors who said the punctuation need no TTS cue after them.
   const addsCues = (current) => punctuation && !sessionSaysPunctuation(current);
-  const studioKey = (current) => `${sessionTakesKey(current)}|${addsCues(current)}`;
+  const studioKey = (current) => `${sessionTakesKey(current)}|${addsCues(current)}|${timings}`;
   const kept = !!(studio && session && studio.key === studioKey(session));
 
   // Straight from a loaded session to the studio once every sentence has a
@@ -124,12 +127,22 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
     try {
       const addCues = addsCues(latest);
       if (addCues) requireServer?.();
+      const takes = [];
+      for (let i = 0; i < plan.length; i++) {
+        setMessage(`Loading sentence ${i + 1} of ${plan.length}…`);
+        const line = latest.lines[i];
+        takes.push({ sentence: plan[i].sentence, buffer: trimTake(await bufferFor(line, context, signal), line.trim, context) });
+        if (signal.aborted) return;
+      }
+      // Word timings from speech recognition in this browser, so the cuts
+      // fall between the right words; a sentence it can't follow keeps
+      // its pause-based cuts.
+      const found = timings ? await alignTakes(takes, lang, { onProgress: setMessage, signal }) : [];
+      if (signal.aborted) return;
       for (let i = 0; i < plan.length; i++) {
         setMessage(`Preparing sentence ${i + 1} of ${plan.length}…`);
-        const line = latest.lines[i];
-        const buffer = trimTake(await bufferFor(line, context, signal), line.trim, context);
-        results.push(await prepareHumanSentenceRecording(plan[i], buffer, {
-          lang, rate, context, cueCache, punctuation: addCues, signal,
+        results.push(await prepareHumanSentenceRecording(plan[i], takes[i].buffer, {
+          lang, rate, context, cueCache, punctuation: addCues, signal, boundaries: found[i] || null,
         }));
         if (signal.aborted) return;
       }
@@ -167,6 +180,7 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
         </div>
         <p className="field-hint">Your split changes are kept while the takes stay the same.</p>
       </> : progress.ready ? <>
+        {options && <WordTimingsOption checked={timings} disabled={busy} onChange={setTimings} />}
         {options && mode === 'notebook' && !sessionSaysPunctuation(session) && <label>
           <input type="checkbox" checked={punctuation} disabled={busy} onChange={(e) => setPunctuation(e.target.checked)} /> Add TTS punctuation cues after the human sentences
         </label>}

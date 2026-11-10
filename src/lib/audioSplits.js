@@ -145,6 +145,51 @@ export function pauseCuts(segments, samples, sampleRate) {
   catch { return estimatedCuts(segments, duration); }
 }
 
+// The level below which a moment counts as a pause rather than speech, from
+// the recording itself (the same rule speechBounds uses).
+export function speechThreshold(samples, sampleRate) {
+  const duration = samples.length / sampleRate;
+  const levels = [];
+  for (let t = FRAME / 2; t < duration; t += HOP) levels.push(rmsAt(samples, sampleRate, t));
+  if (!levels.length) return 0;
+  const sorted = levels.slice().sort((a, b) => a - b);
+  return Math.max(sorted[Math.floor(sorted.length * 0.1)] * 3, sorted.at(-1) * 0.1, 0.003);
+}
+
+// Word timings from speech recognition (calibrated in browserWhisper.js) are
+// good to about ±0.15 s. A cut they suggest moves to a real pause close by
+// (a moment quieter than speech), never past the neighbouring cuts;
+// otherwise the recogniser's boundary stands. Measured on connected speech
+// in three languages: always taking the quietest moment nearby was worse,
+// landing on a soft consonant inside a word, and a wider reach (±0.25 s)
+// reached a stop closure at the end of the next word. TTS timings are exact
+// and are left alone.
+const RECOGNISED_RADIUS = 0.12;
+// A pause lasts; a soft consonant inside a word (an intervocalic /ð/, a /j/)
+// dips below the speech level for a few tens of milliseconds only.
+const MIN_PAUSE = 0.08;
+function quietRun(samples, sampleRate, time, threshold) {
+  let from = time;
+  let to = time;
+  while (from - HOP >= 0 && rmsAt(samples, sampleRate, from - HOP) <= threshold) from -= HOP;
+  while (to + HOP <= samples.length / sampleRate && rmsAt(samples, sampleRate, to + HOP) <= threshold) to += HOP;
+  return to - from;
+}
+function settleCut(samples, sampleRate, threshold, cut, lo, hi, radius = RECOGNISED_RADIUS) {
+  const clamped = Math.min(Math.max(cut, lo), hi);
+  const quiet = quietestNear(samples, sampleRate, cut, lo, hi, radius);
+  const isPause = rmsAt(samples, sampleRate, quiet) <= threshold && quietRun(samples, sampleRate, quiet, threshold) >= MIN_PAUSE;
+  return isPause ? quiet : clamped;
+}
+export function refineCuts(cuts, samples, sampleRate, radius = RECOGNISED_RADIUS) {
+  const threshold = speechThreshold(samples, sampleRate);
+  const refined = cuts.slice();
+  for (let i = 1; i < cuts.length - 1; i++) {
+    refined[i] = settleCut(samples, sampleRate, threshold, cuts[i], refined[i - 1] + MIN_PHRASE, cuts[i + 1] - MIN_PHRASE, radius);
+  }
+  return refined;
+}
+
 // One new boundary between `lo` and `hi` (neighbouring cuts), from how much
 // text falls on each side, then moved to the nearest pause.
 function cutBetween(buffer, lo, hi, leftText, rightText) {
@@ -165,7 +210,11 @@ function newCut(recording, segments, splitIndex, lo, hi) {
   const { boundaries, buffer } = recording;
   if (Array.isArray(boundaries) && boundaries.length) {
     try {
-      const cut = sentenceCuts(segments, boundaries, buffer.duration)[splitIndex];
+      let cut = sentenceCuts(segments, boundaries, buffer.duration)[splitIndex];
+      if (recording.timingsFrom === 'recognition') {
+        const samples = buffer.getChannelData(0);
+        cut = settleCut(samples, buffer.sampleRate, speechThreshold(samples, buffer.sampleRate), cut, lo + MIN_PHRASE, hi - MIN_PHRASE);
+      }
       if (cut > lo && cut < hi) return { cut, exact: true };
     } catch { /* fall through to an estimate */ }
   }

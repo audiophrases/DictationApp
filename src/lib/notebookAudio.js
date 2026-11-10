@@ -3,7 +3,7 @@ import { notebookPlan } from './notebook';
 import { sentenceEndCue } from './notebookShared';
 import { wavClip } from './notebookWav';
 import { deliveryFor } from './delivery';
-import { sentenceCuts, estimatedCuts, validateCuts, pauseCuts, mergeAll } from './audioSplits';
+import { sentenceCuts, estimatedCuts, validateCuts, pauseCuts, mergeAll, refineCuts } from './audioSplits';
 
 async function speak(text, { lang, rate, context, signal }) {
   const query = new URLSearchParams({ text, lang, rate });
@@ -89,13 +89,23 @@ export async function prepareNotebook(text, settings, onProgress) {
 // the grammatical phrase plan and place each cut at the nearest pause. A
 // warning asks for a ticked listening check before publishing; human takes
 // carry none, because the teacher hears them while splitting anyway.
-export function takeRecording(part, buffer, { cue = null, source, warning = '' }) {
-  return { sentence: part.sentence, segments: part.segments.slice(), buffer,
-    cuts: pauseCuts(part.segments, buffer.getChannelData(0), buffer.sampleRate), cue, boundaries: [], source, warning };
+// With `boundaries` (word timings found by speech recognition, see
+// browserWhisper.js) the cuts fall exactly between words, and the studio's
+// splits and word moves stay exact; without them, or if they don't fit the
+// text, the nearest pause is used.
+export function takeRecording(part, buffer, { cue = null, source, warning = '', boundaries = null }) {
+  const base = { sentence: part.sentence, segments: part.segments.slice(), buffer, cue, source, warning };
+  if (boundaries?.length) {
+    try {
+      const cuts = refineCuts(sentenceCuts(part.segments, boundaries, buffer.duration), buffer.getChannelData(0), buffer.sampleRate);
+      return { ...base, cuts, boundaries, timingsFrom: 'recognition' };
+    } catch { /* timings that don't fit the text: fall back to pauses */ }
+  }
+  return { ...base, cuts: pauseCuts(part.segments, buffer.getChannelData(0), buffer.sampleRate), boundaries: [] };
 }
 
 export async function prepareHumanSentenceRecording(part, buffer, options) {
   const label = options.punctuation ? sentenceEndCue(part.sentence, options.lang) : '';
   const cue = label ? await punctuationAudio(label, { ...options, cueCache: options.cueCache || new Map() }) : null;
-  return takeRecording(part, buffer, { cue, source: 'human' });
+  return takeRecording(part, buffer, { cue, source: 'human', boundaries: options.boundaries });
 }

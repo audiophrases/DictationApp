@@ -30,7 +30,24 @@ every change; Reset restores the original phrases and timings, and the sentence
 buttons at the top show which sentences still need a listening check. Audio
 without word timings (human takes, Listening Studio voices, a split the voice
 gave no timing for) is cut at the nearest pause and flagged for manual review.
-Uncertain timing matches are flagged too. Upload retries reuse the reviewed audio. **Edit > Recordings > Open
+Uncertain timing matches are flagged too. For human takes and Listening
+Studio voices, **Find the word timings with speech recognition** (on by
+default) runs a small Whisper model in the teacher's browser
+(`src/lib/browserWhisper.js`, transformers.js, `onnx-community/whisper-base_timestamped`,
+a one-time ~60 MB download kept in the browser cache; no server, nothing
+leaves the computer) and matches the heard words to the sentence's known
+words (`src/lib/wordAlignment.js`: an in-order alignment that tolerates
+misheard, missed and extra words, interpolating timings for the rest). The
+recordings then carry `boundaries` like TTS ones, so the first cuts fall
+between the right words and ✂ Split and the word moves stay exact; a sentence
+the model can't follow keeps its pause-based cuts. The model's timestamps run
+a steady ~0.25 s late (measured against Edge TTS word boundaries;
+`RECOGNISED_LATE`), so they are shifted; a cut then moves to a real pause
+within ±0.12 s if there is one, and otherwise stands (`refineCuts`: always
+taking the quietest moment landed on soft consonants inside words). Checked
+with Edge TTS speech in English, Catalan and Spanish: cuts within 0.1 s of
+the true word gap. The studio's status line says how many sentences got word
+timings. Upload retries reuse the reviewed audio. **Edit > Recordings > Open
 splitting studio** generates a new sentence recording plan for an existing
 assignment. Timing-only edits preserve student answers. Moving words changes
 the expected answers, so saving requires confirmation that student attempts,

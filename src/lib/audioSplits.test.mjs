@@ -349,3 +349,41 @@ test('the sentence start and end can move in, discarding the audio outside', () 
   assert.deepEqual(mergeAll(trimmed).cuts, [trimmed.cuts[0], trimmed.cuts.at(-1)]);
   assert.deepEqual(recording.cuts, [0, 1.4, spoken.duration]);
 });
+
+test('recognised word timings place the cut, then the nearest pause settles it', async () => {
+  // `spoken`: 0.3 s silence, 1.0 s speech, a 0.25 s pause (1.3–1.55), 0.8 s speech, 0.4 s silence.
+  const part = { sentence: 'Moving abroad helped him.', segments: ['Moving abroad', 'helped him.'] };
+  // Timings 0.2 s late, as a recogniser's tend to be: the gap they suggest is at 1.6 s.
+  const late = [['Moving', 0.5, 0.9], ['abroad', 0.95, 1.5], ['helped', 1.7, 2.0], ['him.', 2.0, 2.3]]
+    .map(([text, start, end]) => ({ text, start, end }));
+  const recording = await prepareHumanSentenceRecording(part, spoken, { punctuation: false, boundaries: late });
+  assert.equal(recording.timingsFrom, 'recognition');
+  assert.equal(recording.boundaries, late);
+  assert.ok(recording.cuts[1] > 1.3 && recording.cuts[1] < 1.56, `settled into the pause: ${recording.cuts[1]}`);
+  // Timings that don't fit the words: pauses alone, as before.
+  const wrong = await prepareHumanSentenceRecording(part, spoken, { punctuation: false, boundaries: late.slice(0, 2) });
+  assert.deepEqual(wrong.boundaries, []);
+  assert.equal(wrong.timingsFrom, undefined);
+  // Splitting with recognised timings is exact too, and settles the same way.
+  const whole = await prepareHumanSentenceRecording({ sentence: part.sentence, segments: [part.sentence] }, spoken, { punctuation: false, boundaries: late });
+  const split = splitSegment(whole, 0, 2);
+  assert.ok(split.cuts[1] > 1.3 && split.cuts[1] < 1.56, `split cut ${split.cuts[1]}`);
+  assert.equal(split.warning, '');
+});
+
+test('a recognised cut only moves to a real pause, never to a soft spot inside a word', async () => {
+  // Continuous speech from 0.3 s to 2.3 s: no pause anywhere near 1.0 s.
+  const continuous = speech([[0.3, false], [2.0, true], [0.4, false]]);
+  const part = { sentence: 'Moving abroad helped him.', segments: ['Moving abroad', 'helped him.'] };
+  const words = [['Moving', 0.3, 0.6], ['abroad', 0.6, 0.98], ['helped', 1.02, 1.6], ['him.', 1.6, 2.3]]
+    .map(([text, start, end]) => ({ text, start, end }));
+  const recording = await prepareHumanSentenceRecording(part, continuous, { punctuation: false, boundaries: words });
+  assert.equal(recording.cuts[1], 1.0, 'the recogniser’s boundary stands');
+  const { refineCuts, speechThreshold } = await import('./audioSplits.js');
+  assert.deepEqual(refineCuts([0, 1.0, continuous.duration], continuous.getChannelData(0), continuous.sampleRate), [0, 1.0, continuous.duration]);
+  // With a real pause nearby (spoken: 1.3–1.55 s), a slightly-off cut settles into it.
+  const spokenSamples = spoken.getChannelData(0);
+  assert.ok(speechThreshold(spokenSamples, spoken.sampleRate) > 0);
+  const settled = refineCuts([0, 1.25, spoken.duration], spokenSamples, spoken.sampleRate)[1];
+  assert.ok(settled > 1.3 && settled < 1.56, `settled ${settled}`);
+});

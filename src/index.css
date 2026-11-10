@@ -1080,6 +1080,12 @@ input:focus {
 .studio-finder > button,
 .studio-voice-form > button { align-self: flex-start; }
 .studio-finder-filters select { width: 100%; }
+
+/* Recording session: where it stands and the way into the splitting studio. */
+.session-next { display: flex; flex-direction: column; gap: 0.6rem; align-items: flex-start; margin: 1rem 0; padding: 1rem 1.25rem; border: 1px solid var(--glass-border); border-left: 4px solid var(--primary-color); border-radius: 10px; background: var(--surface-sunken); }
+.session-next p { margin: 0; }
+.session-next .edit-actions { justify-content: flex-start; }
+.session-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
 .studio-finder-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; max-height: 26rem; overflow-y: auto; }
 .studio-finder-list li { padding: 0.45rem 0.6rem; border-radius: 8px; background: var(--surface-sunken); display: flex; flex-direction: column; gap: 0.3rem; }
 .studio-finder-list .studio-line-actions { margin-top: 0; }

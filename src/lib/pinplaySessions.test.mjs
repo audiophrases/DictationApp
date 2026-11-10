@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { sessionFields, validateSession, sessionPassage, actorLink, takeUrl, autoTrim, trimTake, sessionRequest, loadTake } from './pinplaySessions.js';
+import {
+  sessionFields, validateSession, sessionPassage, actorLink, takeUrl, autoTrim, trimTake, sessionRequest, loadTake,
+  sessionProgress, sessionTakesKey,
+} from './pinplaySessions.js';
 
 const plan = [{ sentence: 'Moving abroad helped him.', segments: ['Moving abroad', 'helped him.'] }];
 const id = 'abcd234567';
@@ -55,6 +58,31 @@ test('only matching approved takes can enter the splitting studio', () => {
   assert.throws(() => validateSession({ ...session, lines: [{ ...session.lines[0], take: null }] }, plan, true));
   assert.equal(sessionPassage(session), plan[0].sentence);
   assert.throws(() => sessionPassage({ lines: [{ text: 'Two sentences. Another one.' }] }));
+});
+
+test('progress says what stands between a session and the splitting studio', () => {
+  const take = (n) => ({ key: `voice-actors/${id}/l${n}-1.webm` });
+  const lines = [
+    { id: 'l1', status: 'ok', take: take(1) },
+    { id: 'l2', status: 'recorded', take: take(2) },
+    { id: 'l3', status: 'todo', take: null },
+    { id: 'l4', status: 'redo', take: take(4) },
+  ];
+  assert.deepEqual(sessionProgress({ lines }),
+    { total: 4, approved: [1], toReview: [2], redo: [4], missing: [3], ready: false });
+  // Every sentence has a take nobody asked to redo: ready, even unreviewed.
+  const recorded = lines.map((line, i) => ({ ...line, status: i ? 'recorded' : 'ok', take: take(i + 1) }));
+  assert.deepEqual(sessionProgress({ lines: recorded }),
+    { total: 4, approved: [1], toReview: [2, 3, 4], redo: [], missing: [], ready: true });
+  assert.equal(sessionProgress({ lines: [] }).ready, false);
+  assert.equal(sessionProgress(null).ready, false);
+
+  // A kept studio is only offered again for the very same takes.
+  const key = sessionTakesKey({ lines: recorded });
+  assert.equal(sessionTakesKey({ lines: recorded.map((line) => ({ ...line })) }), key);
+  assert.notEqual(sessionTakesKey({ lines: recorded.map((line, i) => (i === 1 ? { ...line, take: { key: 'new' } } : line)) }), key);
+  assert.notEqual(sessionTakesKey({ lines: recorded.map((line, i) => (i === 1 ? { ...line, status: 'redo' } : line)) }), key);
+  assert.notEqual(sessionTakesKey({ lines: recorded.map((line, i) => (i === 1 ? { ...line, trim: { s: 1, e: 900 } } : line)) }), key);
 });
 
 test('takes can only be fetched from this PinPlay session media folder', () => {

@@ -58,7 +58,7 @@ function Waveform({ buffer, cuts, disabled, onMove, onPlay }) {
   </div>;
 }
 
-export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onAccept, acceptLabel = 'Use audio and create assignment', segmentChangeNotice = '', initialRecordings = null }) {
+export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onAccept, acceptLabel = 'Use audio and create assignment', segmentChangeNotice = '', initialRecordings = null, backLabel = 'Back' }) {
   const [recordings, setRecordings] = useState([]);
   const [index, setIndex] = useState(0);
   const [error, setError] = useState('');
@@ -77,8 +77,13 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
   const originalCount = recordings.reduce((n, r) => n + r.originalSegments.length, 0);
 
   useEffect(() => {
-    const fresh = (result) => ({ ...result, originalCuts: result.cuts.slice(), originalSegments: result.segments.slice(),
-      originalWarning: result.warning, checked: !result.warning });
+    // Recordings handed back from an earlier visit keep their edits, their
+    // automatic starting point (for Reset) and what was checked by ear.
+    const fresh = (result) => ({ ...result,
+      originalCuts: result.originalCuts || result.cuts.slice(),
+      originalSegments: result.originalSegments || result.segments.slice(),
+      originalWarning: 'originalWarning' in result ? result.originalWarning : result.warning,
+      checked: result.checked ?? !result.warning });
     if (initialRecordings) {
       setRecordings(initialRecordings.map(fresh));
       setIndex(0); setLoading(false); setError('');
@@ -246,7 +251,7 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, onCancel, onA
       <input type="checkbox" checked={confirmedChange} disabled={saving} onChange={(e) => setConfirmedChange(e.target.checked)} /> {segmentChangeNotice}
     </label>}
     <div className="edit-actions">
-      <button className="btn-ghost" onClick={onCancel} disabled={saving}>Back</button>
+      <button className="btn-ghost" onClick={() => { stop(); onCancel(loading ? null : recordings); }} disabled={saving}>{backLabel}</button>
       <button className="btn-primary" onClick={accept} disabled={saving || loading || (changedSegments && !!segmentChangeNotice && !confirmedChange) || recordings.length !== plan.length || recordings.some((r) => !r.checked)}>
         {saving ? 'Saving audio…' : acceptLabel}
       </button>

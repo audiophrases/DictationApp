@@ -55,9 +55,29 @@ export function validateSession(session, plan, requireApproved = false) {
     throw new Error('This session does not match the dictation sentence by sentence. Use the original passage or create a matching session.');
   }
   if (requireApproved && session.lines.some((line) => line.status !== 'ok' || !line.take?.key)) {
-    throw new Error('Listen to and approve every sentence before opening the splitting studio.');
+    throw new Error('Every sentence needs an approved take before the splitting studio opens.');
   }
 }
+
+/**
+ * Where a session stands on its way to the splitting studio, as sentence
+ * numbers: approved takes, takes not reviewed yet, and lines still waiting
+ * for an actor (never recorded, or a redo was requested).
+ */
+export function sessionProgress(session) {
+  const lines = session?.lines || [];
+  const numbers = (test) => lines.flatMap((line, i) => (test(line) ? [i + 1] : []));
+  const approved = numbers((line) => line.take?.key && line.status === 'ok');
+  const toReview = numbers((line) => line.take?.key && line.status !== 'ok' && line.status !== 'redo');
+  const redo = numbers((line) => line.take?.key && line.status === 'redo');
+  const missing = numbers((line) => !line.take?.key);
+  return { total: lines.length, approved, toReview, redo, missing,
+    ready: lines.length > 0 && !redo.length && !missing.length };
+}
+
+// The takes a splitting studio was made from: when they change, so must it.
+export const sessionTakesKey = (session) => JSON.stringify((session?.lines || [])
+  .map((line) => [line.id, line.take?.key || '', line.status, line.trim || null]));
 
 export function sessionPassage(session) {
   if (!Array.isArray(session?.lines) || !session.lines.length || session.lines.some((line) =>

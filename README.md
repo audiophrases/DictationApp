@@ -82,11 +82,19 @@ interrogación]`. Commas are not said. The notes are removed again when takes
 are matched to sentences, so a passage's own brackets such as `[sic]` still
 match, and sessions made before the notes still work.
 
-Use **Refresh takes**, preview each recording, adjust its automatic silence
-trim, then **Approve take** or **Request redo**. Once all takes are approved,
-open the splitting studio: the original phrase logic is retained, but human
-audio has estimated timing, so each sentence requires a listening check. Move
-words or adjust cut times as usual. Human audio keeps the actor's pace; for
+A loaded session opens with a panel that says where it stands (approved,
+recorded but not reviewed, still waiting for the actors) and holds the way
+into the splitting studio, repeated below the takes. Once every sentence has a
+take, **Approve the remaining takes and open splitting studio** does it in one
+click: takes not reviewed yet are approved as recorded, with the automatic
+silence trim. Reviewing first is optional: preview a take, adjust its trim, then
+**Approve take** or **Request redo**. Until every sentence has a take, the
+panel lists the sentences still waiting and offers **Refresh takes**. In the
+studio, **Back to the recording session** keeps your split changes, and
+**Return to splitting studio** brings them back as long as the takes stay the
+same. The original phrase logic is retained, but human audio has estimated
+timing, so each sentence requires a listening check. Move words or adjust cut
+times as usual. Human audio keeps the actor's pace; for
 sessions made before the bracket notes, notebook punctuation cues can
 optionally be added with TTS (sessions with notes already say them). Takes are copied into the
 assignment on save; subsequent PinPlay retakes do not change a published

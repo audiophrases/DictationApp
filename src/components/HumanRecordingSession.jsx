@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import AudioSplitStudio from './AudioSplitStudio';
 import {
   actorLink, sessionRequest, sessionFields, sessionSaysPunctuation, sessionScript, validateSession, loadTake, trimTake,
-  autoTrim, sessionPassage,
+  autoTrim, sessionPassage, sessionProgress, sessionTakesKey,
 } from '../lib/pinplaySessions';
 import { prepareHumanSentenceRecording } from '../lib/notebookAudio';
 import { wavClip } from '../lib/notebookWav';
@@ -20,7 +20,10 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
   const [preview, setPreview] = useState(null);
   const [previewUrl, setPreviewUrl] = useState('');
   const [trims, setTrims] = useState({});
-  const [ready, setReady] = useState(null);
+  // The splitting studio's work, kept when the teacher steps back to the
+  // session, for as long as the takes it was made from stay the same.
+  const [studio, setStudio] = useState(null); // { key, recordings }
+  const [inStudio, setInStudio] = useState(false);
   const [punctuation, setPunctuation] = useState(false);
   const cache = useRef(new Map());
   const controller = useRef(null);
@@ -82,17 +85,37 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
     }, signal);
     validateSession(next, plan); setSession(next); stop();
   }
-  async function importTakes(signal) {
+  // Actors who said the punctuation need no TTS cue after them.
+  const addsCues = (current) => punctuation && !sessionSaysPunctuation(current);
+  const studioKey = (current) => `${sessionTakesKey(current)}|${addsCues(current)}`;
+  const kept = !!(studio && session && studio.key === studioKey(session));
+
+  // One step from a loaded session to the studio: takes not reviewed yet are
+  // approved as recorded (the teacher hears every phrase in the studio, and a
+  // redo can still be requested here afterwards).
+  async function openStudio(signal) {
     stop();
-    const { session: latest } = await api('get', { id: session.id }, signal);
+    let { session: latest } = await api('get', { id: session.id }, signal);
+    validateSession(latest, plan);
+    const progress = sessionProgress(latest);
+    if (!progress.ready) {
+      setSession(latest);
+      throw new Error('Not every sentence has a take yet. Refresh when the actors finish.');
+    }
+    if (progress.toReview.length) {
+      setMessage(`Approving ${progress.toReview.length} take${progress.toReview.length === 1 ? '' : 's'}…`);
+      ({ session: latest } = await api('save', { id: session.id,
+        lines: progress.toReview.map((n) => ({ id: latest.lines[n - 1].id, status: 'ok' })) }, signal));
+    }
     validateSession(latest, plan, true);
     setSession(latest);
+    const key = studioKey(latest);
+    if (studio?.key === key) { setMessage(''); setInStudio(true); return; }
     const context = new AudioContext({ sampleRate: 24000 });
     const cueCache = new Map();
     const results = [];
     try {
-      // Actors who said the punctuation need no TTS cue after them.
-      const addCues = punctuation && !sessionSaysPunctuation(latest);
+      const addCues = addsCues(latest);
       if (addCues) requireServer?.();
       for (let i = 0; i < plan.length; i++) {
         setMessage(`Preparing sentence ${i + 1} of ${plan.length}…`);
@@ -103,24 +126,73 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
         }));
         if (signal.aborted) return;
       }
-      setReady(results);
+      setMessage('');
+      setStudio({ key, recordings: results });
+      setInStudio(true);
     } finally { await context.close(); }
   }
 
-  if (ready) return <AudioSplitStudio plan={plan} lang={lang} rate={rate} mode={mode}
-    initialRecordings={ready} onAccept={onAccept} acceptLabel={acceptLabel} segmentChangeNotice={segmentChangeNotice}
-    onCancel={() => setReady(null)} />;
+  if (inStudio && studio) return <AudioSplitStudio plan={plan} lang={lang} rate={rate} mode={mode}
+    initialRecordings={studio.recordings} onAccept={onAccept} acceptLabel={acceptLabel} segmentChangeNotice={segmentChangeNotice}
+    backLabel="Back to the recording session"
+    onCancel={(recordings) => { if (recordings) setStudio((current) => ({ ...current, recordings })); setInStudio(false); }} />;
+
+  const progress = session && sessionProgress(session);
+  const waitingFor = progress && [
+    ...progress.missing.map((n) => [n, 'not recorded yet']),
+    ...progress.redo.map((n) => [n, 'redo requested']),
+  ].sort((a, b) => a[0] - b[0]);
+  const refresh = () => run((signal) => open(session.id, signal));
+  const nextStep = (options) => {
+    const { total, approved, toReview } = progress;
+    const shown = waitingFor.slice(0, 8).map(([n, why]) => `${n} (${why})`).join(', ');
+    // Shown in both copies of the panel, so the teacher sees it from either.
+    const live = options ? {} : { 'aria-hidden': true };
+    return <div className="session-next">
+      {error && <p className="fetch-error" role={options ? 'alert' : undefined} {...live}>{error}</p>}
+      {message && <p role={options ? 'status' : undefined} {...live}>{message}</p>}
+      <p><strong>{approved.length} of {total} sentences approved</strong>
+        {toReview.length > 0 && ` · ${toReview.length} recorded, not reviewed yet`}
+        {waitingFor.length > 0 && ` · ${waitingFor.length} waiting for the actors`}</p>
+      {kept ? <>
+        <div className="edit-actions">
+          <button className="btn-primary" disabled={busy} onClick={() => { stop(); setInStudio(true); }}>Return to splitting studio</button>
+          <button className="btn-ghost btn-small" disabled={busy} onClick={refresh}>Refresh takes</button>
+        </div>
+        <p className="field-hint">Your split changes are kept while the takes stay the same.</p>
+      </> : progress.ready ? <>
+        {options && mode === 'notebook' && !sessionSaysPunctuation(session) && <label>
+          <input type="checkbox" checked={punctuation} disabled={busy} onChange={(e) => setPunctuation(e.target.checked)} /> Add TTS punctuation cues after the human sentences
+        </label>}
+        <div className="edit-actions">
+          <button className="btn-primary" disabled={busy} onClick={() => run(openStudio)}>
+            {toReview.length ? `Approve ${toReview.length === 1 ? 'the last take' : `the ${toReview.length} remaining takes`} and open splitting studio` : 'Open splitting studio'}
+          </button>
+          <button className="btn-ghost btn-small" disabled={busy} onClick={refresh}>Refresh takes</button>
+        </div>
+        <p className="field-hint">{toReview.length
+          ? 'Takes you haven’t reviewed are approved as recorded, with the silence trimmed automatically. You hear every phrase in the studio, and you can still request a redo here.'
+          : 'Human speech keeps the actor’s pace. Phrase cuts are estimates: listen and adjust them in the studio.'}</p>
+      </> : <>
+        <p>The splitting studio opens when every sentence has a take. Waiting for sentence{waitingFor.length === 1 ? '' : 's'} {shown}{waitingFor.length > 8 ? ` and ${waitingFor.length - 8} more` : ''}.</p>
+        <div className="edit-actions">
+          <button className="btn-primary" disabled={busy} onClick={refresh}>Refresh takes</button>
+        </div>
+        {options && <p className="field-hint">There is no background polling: refresh when the actors say they have finished.</p>}
+      </>}
+    </div>;
+  };
 
   return <section className="glass-panel" style={{ maxWidth: 900, margin: '1.5rem auto', padding: '1.5rem' }}>
     <h2>Human voice recording sessions</h2>
     <p className="field-hint">Uses PinPlay’s recording sessions. Share a link with your actors: they record each full sentence on their phone or computer. Listen here, approve or request a redo, then adjust the phrase splits.</p>
-    <label className="field-label">PinPlay teacher password
-      <input type="password" autoComplete="off" value={password} disabled={busy} onChange={(e) => setPassword(e.target.value)} />
-    </label>
-    <p className="field-hint">Used only for PinPlay session requests; kept in memory for this visit.</p>
-    {error && <p className="fetch-error" role="alert">{error}</p>}
-    {message && <p role="status">{message}</p>}
     {!session ? <>
+      <label className="field-label">PinPlay teacher password
+        <input type="password" autoComplete="off" value={password} disabled={busy} onChange={(e) => setPassword(e.target.value)} />
+      </label>
+      <p className="field-hint">Used only for PinPlay session requests; kept in memory for this visit.</p>
+      {error && <p className="fetch-error" role="alert">{error}</p>}
+      {message && <p role="status">{message}</p>}
       <button className="btn-ghost" disabled={busy || !password} onClick={() => run(async (signal) => setSessions((await api('list', {}, signal)).sessions || []))}>Load existing PinPlay sessions</button>
       {sessions && <ul>{sessions.map((item) => <li key={item.id} style={{ margin: '0.5rem 0' }}>
         <button className="btn-ghost" disabled={busy} onClick={() => run((signal) => open(item.id, signal))}>{item.title} · {item.approved}/{item.total} approved</button>
@@ -139,19 +211,26 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
         })}>Create recording session</button>
       </details>
     </> : <>
-      <h3>{session.title}</h3>
-      <p>Actors can record from these links without signing in. Anyone with a link can view the script and record unapproved lines.</p>
-      <p><a href={actorLink(session.id)} target="_blank" rel="noreferrer">Open recorder · whole passage</a></p>
-      <input aria-label="Recording session link" readOnly value={actorLink(session.id)} onFocus={(e) => e.target.select()} />
-      <ul>{[...new Set(session.lines.flatMap((line) => line.speaker.split('+').map((name) => name.trim())))].map((speaker) => <li key={speaker}>
-        <a href={actorLink(session.id, speaker)} target="_blank" rel="noreferrer">Record as {speaker}</a>
-        <input aria-label={`Recording link for ${speaker}`} readOnly value={actorLink(session.id, speaker)} onFocus={(e) => e.target.select()} />
-      </li>)}</ul>
-      <button className="btn-ghost" disabled={busy} onClick={() => run((signal) => open(session.id, signal))}>Refresh takes</button>
-      <p className="field-hint">Sessions and takes are saved in PinPlay. You can come back later and load this session. Refresh when actors finish; there is no background polling.</p>
+      <div className="session-heading">
+        <h3>{session.title}</h3>
+        <button className="btn-ghost btn-small" disabled={busy} onClick={() => { stop(); cache.current.clear(); setSession(null); setTrims({}); setStudio(null); }}>Choose another session</button>
+      </div>
+      {nextStep(true)}
+      <details open={!progress.ready} style={{ margin: '1rem 0' }}><summary>Links for the actors</summary>
+        <p>Actors can record from these links without signing in. Anyone with a link can view the script and record unapproved lines.</p>
+        <p><a href={actorLink(session.id)} target="_blank" rel="noreferrer">Open recorder · whole passage</a></p>
+        <input aria-label="Recording session link" readOnly value={actorLink(session.id)} onFocus={(e) => e.target.select()} />
+        <ul>{[...new Set(session.lines.flatMap((line) => line.speaker.split('+').map((name) => name.trim())))].map((speaker) => <li key={speaker}>
+          <a href={actorLink(session.id, speaker)} target="_blank" rel="noreferrer">Record as {speaker}</a>
+          <input aria-label={`Recording link for ${speaker}`} readOnly value={actorLink(session.id, speaker)} onFocus={(e) => e.target.select()} />
+        </li>)}</ul>
+        <p className="field-hint">Sessions and takes are saved in PinPlay. You can come back later and load this session.</p>
+      </details>
+      <h4>Takes, sentence by sentence</h4>
+      <p className="field-hint">Optional: listen to a take here to approve it or ask the actor for a redo.</p>
       <ol>{session.lines.map((line) => <li key={line.id} style={{ margin: '1rem 0' }}>
         <p><strong>{line.speaker}</strong>: {line.text}</p>
-        <p className="field-hint">{({ todo: 'Awaiting recording', recorded: 'Ready for review', ok: 'Approved', redo: 'Redo requested' })[line.status]}</p>
+        <p className="field-hint">{({ todo: 'Not recorded yet', recorded: 'Recorded, not reviewed yet', ok: 'Approved', redo: 'Redo requested' })[line.status]}</p>
         <div className="edit-actions" style={{ justifyContent: 'flex-start', flexWrap: 'wrap' }}>
           <button className="btn-ghost btn-small" disabled={busy || !line.take} onClick={() => run((signal) => previewTake(line, signal))}>Preview take</button>
           <button className="btn-ghost btn-small" disabled={busy || !line.take || preview?.id !== line.id || preview?.dirty} onClick={() => run((signal) => review(line, 'ok', signal))}>Approve take</button>
@@ -167,13 +246,7 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
           </label>)}
         </>}
       </li>)}</ol>
-      {mode === 'notebook' && !sessionSaysPunctuation(session) && <label style={{ display: 'block', margin: '1rem 0' }}>
-        <input type="checkbox" checked={punctuation} disabled={busy} onChange={(e) => setPunctuation(e.target.checked)} /> Add TTS punctuation cues after the human sentences
-      </label>}
-      <p className="field-hint">Human speech keeps the actor’s pace. Phrase cuts are estimates: listen and adjust them in the splitting studio.</p>
-      <button className="btn-primary" disabled={busy || session.lines.some((line) => line.status !== 'ok' || !line.take)}
-        onClick={() => run(importTakes)}>Use approved takes in splitting studio</button>
-      <button className="btn-ghost" disabled={busy} onClick={() => { stop(); cache.current.clear(); setSession(null); setTrims({}); }}>Choose another session</button>
+      {session.lines.length > 3 && nextStep(false)}
     </>}
     <div className="edit-actions"><button className="btn-ghost" disabled={busy} onClick={onCancel}>Back</button></div>
   </section>;

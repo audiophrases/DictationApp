@@ -167,6 +167,9 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
         results.push(await prepareHumanSentenceRecording(plan[i], buffer, {
           lang, rate, context, cueCache, punctuation: addCues, signal, boundaries,
         }));
+        // Commas the actors said stay in when inner marks are played: then
+        // the assignment may mark them.
+        results.at(-1).commasDictated = said && (policy ? policy.inner : true) && /\[(comma|coma|virgule|Komma|virgola|vírgula|virgulă|запятая|кома|فاصلة)\]/u.test(latest.lines[i].text);
         if (signal.aborted) return;
       }
       setMessage('');

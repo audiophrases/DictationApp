@@ -63,6 +63,9 @@ export function prepareReviewedAudio(recordings, delivery) {
   return {
     segments: selected.flatMap((recording) => recording.segments),
     clips: selected.flatMap(recordingClips),
+    // Whether this audio dictates commas (voice actors saying "comma" that
+    // students will hear): the assignment marks commas only then.
+    commasDictated: recordings.some((recording) => recording.commasDictated === true),
   };
 }
 

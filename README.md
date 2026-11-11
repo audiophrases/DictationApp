@@ -148,7 +148,13 @@ Sentence ends (period, question mark…) in notebooks and in segmented
 dictations (the only way a segment is known to close the sentence), never in
 typed full-sentence ones; inner marks (colon, semicolon, quotes) in notebooks
 or when Punctuation is marked (Check); new paragraphs in notebooks only.
-Commas are never dictated. The teacher can override it per assignment
+Commas are an inner mark too: actors say them (`[comma]`, `[coma]`,
+`[virgule]`…), and since TTS and studio voices never do, **commas are marked
+only when the recording dictates them**: the assignment carries
+`commasDictated` (set by the teacher's browser from where the audio came,
+reset by a text change or a TTS re-record), and the worker grades with
+`ignoreCommas: !commasDictated` (`src/lib/grading.js`), so a checked-punctuation
+dictation never docks a comma nobody could hear. The teacher can override the rule per assignment
 (**Spoken punctuation**: by the rule / all / sentence ends only / none, in
 New assignment and Edit > Settings; worker field `spokenPunctuation`). For
 voice actors the notes are cut out of the take (`src/lib/spokenPunctuationCut.js`):

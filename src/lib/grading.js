@@ -20,12 +20,18 @@ const COMBINING_MARKS_RE = /\p{M}/gu;
 // ones. Always normalized to '\'', independent of ignorePunctuation, so a
 // student is never marked wrong for an apostrophe style mismatch.
 const APOSTROPHE_RE = /[‘’`]/g;
+// A comma is only ever marked when the recording dictated it (a voice actor
+// saying "comma"); TTS and studio voices never do, so with `ignoreCommas`
+// a checked-punctuation dictation still lets commas pass. The assignment
+// server sets it from the record (commasDictated).
+const COMMA_RE = /[,،]/g;
 
 function normalizeToken(word, opts) {
   let w = word.replace(APOSTROPHE_RE, "'");
   if (opts.ignoreCase) w = w.toLocaleLowerCase();
   if (opts.ignoreAccents) w = w.normalize('NFD').replace(COMBINING_MARKS_RE, '');
   if (opts.ignorePunctuation) w = w.replace(PUNCTUATION_RE, '');
+  else if (opts.ignoreCommas) w = w.replace(COMMA_RE, '');
   return w;
 }
 

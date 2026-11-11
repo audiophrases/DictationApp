@@ -522,6 +522,10 @@ async function createAssignment(env, body) {
     // Which spoken punctuation students hear: 'auto' follows the rule in the
     // app (src/lib/punctuationPolicy.js); the teacher may fix it instead.
     spokenPunctuation: spokenPunctuationChoice(body.spokenPunctuation),
+    // Commas are marked only when the recording dictates them (voice actors
+    // saying "comma"); TTS and studio voices never do. Set by the teacher's
+    // browser from where the audio came, false again when the text changes.
+    commasDictated: body.commasDictated === true,
     sentences,
     sentenceCount: sentences.length,
   };
@@ -723,6 +727,7 @@ async function updateSettings(env, body) {
   if (has('practiceAfter')) record.practiceAfter = body.practiceAfter === true;
   // Recorded speed: sent after the teacher re-records the audio at a new one.
   if (has('rate')) record.settings.rate = Math.min(1.5, Math.max(0.5, Number(body.rate) || 1));
+  if (has('commasDictated')) record.commasDictated = body.commasDictated === true;
   if (has('spokenPunctuation')) {
     if (!SPOKEN_PUNCTUATION.includes(body.spokenPunctuation)) return fail('Unknown spoken-punctuation choice.');
     record.spokenPunctuation = body.spokenPunctuation;
@@ -787,6 +792,7 @@ async function updateContent(env, body) {
 
   record.sentences = content.sentences;
   record.sentenceCount = content.sentences.length;
+  record.commasDictated = false; // new audio is coming; the browser says if it dictates commas
   if (record.mode === 'notebook') {
     record.correctionText = sanitizeText(body.text, MAX_PASSAGE_CHARS).trim();
     record.correctionsReleased = false;
@@ -848,6 +854,7 @@ function markSentence(record, index, text) {
   return gradeSentence(record.sentences[index], text, {
     ...DEFAULT_GRADING_OPTIONS,
     ...record.grading,
+    ignoreCommas: !record.commasDictated,
   });
 }
 
@@ -855,7 +862,7 @@ function gradeResults(record, attempt) {
   return gradeDictation(
     record.sentences,
     answersArray(attempt, record.sentenceCount),
-    { ...DEFAULT_GRADING_OPTIONS, ...record.grading }
+    { ...DEFAULT_GRADING_OPTIONS, ...record.grading, ignoreCommas: !record.commasDictated }
   );
 }
 

@@ -13,18 +13,21 @@ test('American English: the main punctuation, in reading order', () => {
   assert.equal(say('Was it hard?'), 'Was it hard? [question mark]');
   assert.equal(say('It was hard!'), 'It was hard! [exclamation mark]');
   assert.equal(say('He waited...'), 'He waited... [ellipsis]');
-  assert.equal(say('You need three things: time, money and luck.'), 'You need three things: [colon] time, money and luck. [period]');
+  assert.equal(say('You need three things: time, money and luck.'), 'You need three things: [colon] time, [comma] money and luck. [period]');
   assert.equal(say('It rained; we stayed in.'), 'It rained; [semicolon] we stayed in. [period]');
   assert.equal(say('He said: “Stop.”'), 'He said: [colon] [open quote] “Stop.” [period] [close quote]');
   assert.equal(say('"Why?" she asked.'), '[open quote] "Why?" [question mark] [close quote] she asked. [period]');
   assert.equal(say('The word “home” matters.'), 'The word [open quote] “home” [close quote] matters. [period]');
-  assert.equal(say('“Yes”, he said.'), '[open quote] “Yes” [close quote], he said. [period]');
+  assert.equal(say('“Yes”, he said.'), '[open quote] “Yes”, [close quote] [comma] he said. [period]');
   assert.equal(say('The end.', 'en-US', true), 'The end. [period] [new paragraph]');
   assert.equal(say('Is it the end?', 'en-US', true), 'Is it the end? [question mark] [new paragraph]');
 });
 
-test('only real punctuation is said: not commas, abbreviations, times, links or apostrophes', () => {
-  assert.equal(say('Dr. Smith met Mr. Jones at 10:30, didn’t he?'), 'Dr. Smith met Mr. Jones at 10:30, didn’t he? [question mark]');
+test('only real punctuation is said: not abbreviations, times, links, apostrophes or commas in numbers', () => {
+  assert.equal(say('Dr. Smith met Mr. Jones at 10:30, didn’t he?'), 'Dr. Smith met Mr. Jones at 10:30, [comma] didn’t he? [question mark]');
+  assert.equal(say('It cost 1,000 euros, more or less.'), 'It cost 1,000 euros, [comma] more or less. [period]');
+  assert.equal(say('Sí, és aquí.', 'ca-ES'), 'Sí, [coma] és aquí. [punt]');
+  assert.equal(say('Oui, c’est ici.', 'fr-FR'), 'Oui, [virgule] c’est ici. [point]');
   assert.equal(say('See https://example.com for the 3.5 version.'), 'See https://example.com for the 3.5 version. [period]');
   assert.equal(say('What?! Really?!'), 'What?! [question mark] [exclamation mark] Really?! [question mark] [exclamation mark]');
   assert.equal(say('Stop!!!'), 'Stop!!! [exclamation mark]');

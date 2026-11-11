@@ -129,9 +129,9 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
           draftSentences.current = list;
         }
         // Settings the teacher may have changed since the draft was made.
-        await updateAssignmentSettings(draftCode, { title, className, dueAt: endOfDay(due), attemptsLimit, maxListens, feedbackMode, allowSlowdown, grading });
+        await updateAssignmentSettings(draftCode, { title, className, dueAt: endOfDay(due), attemptsLimit, maxListens, feedbackMode, allowSlowdown, grading, spokenPunctuation, commasDictated: !!preparedAudio.current?.commasDictated });
       } else {
-        ({ code: newCode, sentences: list } = await createAssignment({ ...fields(), segments: reviewed }));
+        ({ code: newCode, sentences: list } = await createAssignment({ ...fields(), segments: reviewed, commasDictated: !!preparedAudio.current?.commasDictated }));
       }
       createdCode = newCode;
       setCode(newCode);
@@ -358,7 +358,8 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
             <p className="field-hint">
               All three are ignored by default, so only the words count. Choose Check for a
               spelling-focused task. Fixed when you create the assignment — students can't loosen
-              it to re-mark themselves.
+              it to re-mark themselves. Commas count only when the recording dictates them (voice
+              actors saying “comma”); TTS and studio voices never do.
             </p>
           </div>}
 

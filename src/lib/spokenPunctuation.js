@@ -1,7 +1,7 @@
 // The punctuation a human reader says aloud in a dictation, written into the
 // lines of a PinPlay recording session in [square brackets] so the actor
 // remembers to say it: periods, question and exclamation marks, colons,
-// semicolons, quotation marks and new paragraphs, in the dictation's language.
+// semicolons, commas, quotation marks and new paragraphs, in the dictation's language.
 //
 //   He said: “Stop.”   →   He said: [colon] [open quote] “Stop.” [period] [close quote]
 //
@@ -12,39 +12,39 @@
 import { splitIntoSentences } from './sentences.js';
 
 const WORDS = {
-  en: { period: 'period', question: 'question mark', exclamation: 'exclamation mark', ellipsis: 'ellipsis',
+  en: { comma: 'comma', period: 'period', question: 'question mark', exclamation: 'exclamation mark', ellipsis: 'ellipsis',
     colon: 'colon', semicolon: 'semicolon', openQuote: 'open quote', closeQuote: 'close quote',
     paragraph: 'new paragraph' },
-  ca: { period: 'punt', question: 'signe d’interrogació', exclamation: 'signe d’exclamació', ellipsis: 'punts suspensius',
+  ca: { comma: 'coma', period: 'punt', question: 'signe d’interrogació', exclamation: 'signe d’exclamació', ellipsis: 'punts suspensius',
     colon: 'dos punts', semicolon: 'punt i coma', openQuote: 'obre cometes', closeQuote: 'tanca cometes',
     paragraph: 'nou paràgraf', periodParagraph: 'punt i a part' },
-  es: { period: 'punto', question: 'signo de interrogación', exclamation: 'signo de exclamación', ellipsis: 'puntos suspensivos',
+  es: { comma: 'coma', period: 'punto', question: 'signo de interrogación', exclamation: 'signo de exclamación', ellipsis: 'puntos suspensivos',
     colon: 'dos puntos', semicolon: 'punto y coma', openQuote: 'abre comillas', closeQuote: 'cierra comillas',
     paragraph: 'nuevo párrafo', periodParagraph: 'punto y aparte',
     openQuestion: 'abre interrogación', closeQuestion: 'cierra interrogación',
     openExclamation: 'abre exclamación', closeExclamation: 'cierra exclamación' },
-  fr: { period: 'point', question: 'point d’interrogation', exclamation: 'point d’exclamation', ellipsis: 'points de suspension',
+  fr: { comma: 'virgule', period: 'point', question: 'point d’interrogation', exclamation: 'point d’exclamation', ellipsis: 'points de suspension',
     colon: 'deux-points', semicolon: 'point-virgule', openQuote: 'ouvrez les guillemets', closeQuote: 'fermez les guillemets',
     paragraph: 'à la ligne', periodParagraph: 'point à la ligne' },
-  de: { period: 'Punkt', question: 'Fragezeichen', exclamation: 'Ausrufezeichen', ellipsis: 'Auslassungspunkte',
+  de: { comma: 'Komma', period: 'Punkt', question: 'Fragezeichen', exclamation: 'Ausrufezeichen', ellipsis: 'Auslassungspunkte',
     colon: 'Doppelpunkt', semicolon: 'Semikolon', openQuote: 'Anführungszeichen auf', closeQuote: 'Anführungszeichen zu',
     paragraph: 'neuer Absatz' },
-  it: { period: 'punto', question: 'punto interrogativo', exclamation: 'punto esclamativo', ellipsis: 'puntini di sospensione',
+  it: { comma: 'virgola', period: 'punto', question: 'punto interrogativo', exclamation: 'punto esclamativo', ellipsis: 'puntini di sospensione',
     colon: 'due punti', semicolon: 'punto e virgola', openQuote: 'aperte virgolette', closeQuote: 'chiuse virgolette',
     paragraph: 'a capo', periodParagraph: 'punto e a capo' },
-  pt: { period: 'ponto final', question: 'ponto de interrogação', exclamation: 'ponto de exclamação', ellipsis: 'reticências',
+  pt: { comma: 'vírgula', period: 'ponto final', question: 'ponto de interrogação', exclamation: 'ponto de exclamação', ellipsis: 'reticências',
     colon: 'dois pontos', semicolon: 'ponto e vírgula', openQuote: 'abre aspas', closeQuote: 'fecha aspas',
     paragraph: 'parágrafo', periodParagraph: 'ponto parágrafo' },
-  ro: { period: 'punct', question: 'semn de întrebare', exclamation: 'semn de exclamare', ellipsis: 'puncte de suspensie',
+  ro: { comma: 'virgulă', period: 'punct', question: 'semn de întrebare', exclamation: 'semn de exclamare', ellipsis: 'puncte de suspensie',
     colon: 'două puncte', semicolon: 'punct și virgulă', openQuote: 'deschid ghilimelele', closeQuote: 'închid ghilimelele',
     paragraph: 'de la capăt', periodParagraph: 'punct și de la capăt' },
-  ru: { period: 'точка', question: 'вопросительный знак', exclamation: 'восклицательный знак', ellipsis: 'многоточие',
+  ru: { comma: 'запятая', period: 'точка', question: 'вопросительный знак', exclamation: 'восклицательный знак', ellipsis: 'многоточие',
     colon: 'двоеточие', semicolon: 'точка с запятой', openQuote: 'открыть кавычки', closeQuote: 'закрыть кавычки',
     paragraph: 'абзац' },
-  uk: { period: 'крапка', question: 'знак питання', exclamation: 'знак оклику', ellipsis: 'три крапки',
+  uk: { comma: 'кома', period: 'крапка', question: 'знак питання', exclamation: 'знак оклику', ellipsis: 'три крапки',
     colon: 'двокрапка', semicolon: 'крапка з комою', openQuote: 'відкрити лапки', closeQuote: 'закрити лапки',
     paragraph: 'абзац' },
-  ar: { period: 'نقطة', question: 'علامة استفهام', exclamation: 'علامة تعجب', ellipsis: 'نقاط الحذف',
+  ar: { comma: 'فاصلة', period: 'نقطة', question: 'علامة استفهام', exclamation: 'علامة تعجب', ellipsis: 'نقاط الحذف',
     colon: 'نقطتان', semicolon: 'فاصلة منقوطة', openQuote: 'افتح علامتي التنصيص', closeQuote: 'أغلق علامتي التنصيص',
     paragraph: 'فقرة جديدة' },
 };
@@ -59,7 +59,7 @@ const PARAGRAPH = new Set();
 // What each note is, for deciding whether students hear it (punctuationPolicy.js):
 // 'end' closes the sentence, 'inner' sits inside it, 'paragraph' starts a new
 // one, 'endParagraph' does both in one phrase (Catalan "punt i a part").
-const KINDS = { period: 'end', question: 'end', exclamation: 'end', ellipsis: 'end', closeQuestion: 'end', closeExclamation: 'end',
+const KINDS = { comma: 'inner', period: 'end', question: 'end', exclamation: 'end', ellipsis: 'end', closeQuestion: 'end', closeExclamation: 'end',
   colon: 'inner', semicolon: 'inner', openQuote: 'inner', closeQuote: 'inner', openQuestion: 'inner', openExclamation: 'inner',
   paragraph: 'paragraph', periodParagraph: 'endParagraph' };
 const NOTE_KIND = new Map();
@@ -126,6 +126,7 @@ function marks(sentence, w, lang, paragraph) {
       openExclamation = false;
     } else if (i === endIndex && (ch === '…' || end[1] === '...')) mark = { after: w.ellipsis };
     else if (i === endIndex && endsWithPeriod) mark = { after: paragraph && w.periodParagraph ? w.periodParagraph : w.period };
+    else if (ch === ',' && freeAfter) mark = { after: w.comma };
     else if (ch === ':' && freeAfter) mark = { after: w.colon };
     else if (SEMICOLON.test(ch) && freeAfter) mark = { after: w.semicolon };
     else if (ch === '«' || ch === '„' || (ch === '“' && !de)) mark = { before: w.openQuote };

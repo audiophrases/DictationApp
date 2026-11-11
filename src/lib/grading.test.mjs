@@ -62,5 +62,19 @@ check('ignore accents is on by default', DEFAULT_GRADING_OPTIONS.ignoreAccents =
     pct(g) === 100, `scored ${pct(g)}%`);
 }
 
+// Commas count only when the recording dictated them (ignoreCommas), and only
+// matter at all when punctuation is checked.
+{
+  const checked = { ignoreCase: true, ignorePunctuation: false, ignoreAccents: true };
+  check('with commas dictated, "Yes" without its comma is wrong',
+    gradeSentence('Yes, please.', 'Yes please.', { ...checked, ignoreCommas: false }).correct === 1);
+  check('with commas not dictated, the comma is not marked',
+    gradeSentence('Yes, please.', 'Yes please.', { ...checked, ignoreCommas: true }).correct === 2);
+  check('the period still counts when commas are not dictated',
+    gradeSentence('Yes, please.', 'Yes please', { ...checked, ignoreCommas: true }).correct === 1);
+  check('ignored punctuation ignores commas too',
+    gradeSentence('Yes, please.', 'yes please', { ...checked, ignorePunctuation: true, ignoreCommas: false }).correct === 2);
+}
+
 console.log(failures === 0 ? '\nAll marking checks passed.' : `\n${failures} CHECK(S) FAILED.`);
 process.exit(failures === 0 ? 0 : 1);

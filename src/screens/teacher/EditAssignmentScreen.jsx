@@ -187,6 +187,7 @@ function SettingsSection({ code, data, onSaved }) {
         {handedIn
           ? <p className="field-hint">Locked: students have handed in, and their scores were marked with these rules. Editing the text clears their work and unlocks it.</p>
           : <MarkingRules value={form.grading} onChange={(grading) => set('grading', grading)} />}
+        <p className="field-hint">Commas count only when the recording dictates them (voice actors saying “comma”); TTS and studio voices never do. {record.commasDictated ? 'This recording dictates them.' : 'This recording does not.'}</p>
       </div>}
       {status.error && <div className="fetch-error" style={{ marginTop: '0.75rem' }}>{status.error}</div>}
       <div className="edit-actions">
@@ -285,6 +286,8 @@ function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
       if (!only && !failed.length && rate !== record.settings?.rate) {
         await updateAssignmentSettings(code, { rate });
       }
+      // TTS never dictates commas: a whole re-record stops marking them.
+      if (!only && !failed.length && record.commasDictated) await updateAssignmentSettings(code, { commasDictated: false });
       // A draft left behind by a text edit whose recording was abandoned:
       // every recording now exists, so students can have it.
       if (!only && !failed.length && record.status === 'draft') await publishAssignment(code);
@@ -318,6 +321,7 @@ function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
       if (rate !== record.settings?.rate) settings.rate = rate;
       // The audio is in: the assignment no longer waits for its actors.
       if (sessionId) settings.recording = null;
+      if (!!prepared.commasDictated !== !!record.commasDictated) settings.commasDictated = !!prepared.commasDictated;
       if (Object.keys(settings).length) await updateAssignmentSettings(code, settings);
       if (changed || savedStudioSegments.current || draft) await publishAssignment(code);
       setStudio(false);

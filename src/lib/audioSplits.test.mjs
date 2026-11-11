@@ -65,16 +65,19 @@ test('uncertain alignment only produces estimated clips when review is enabled',
   assert.ok(result.warning);
   assert.equal(recordingClips(result).length, 2);
 });
-test('punctuation is a separate recording appended only to the last clip', async (t) => {
+test('synthetic voices dictate no punctuation; a cue is only ever an explicit, separate last-clip recording', async (t) => {
   const requests = [];
   t.mock.method(globalThis, 'fetch', async (url) => {
     requests.push(new URL(url, 'http://localhost').searchParams.get('text'));
     return { ok: true, json: async () => ({ audio: 'AA==', boundaries }), arrayBuffer: async () => new ArrayBuffer(1) };
   });
-  const result = await prepareSentenceRecording('Moving abroad helped him.', {
-    lang: 'en-US', rate: 1, segments: ['Moving abroad', 'helped him.'],
-    context: { decodeAudioData: async () => buffer },
-  });
+  const options = { lang: 'en-US', rate: 1, segments: ['Moving abroad', 'helped him.'], context: { decodeAudioData: async () => buffer } };
+  // By default (every TTS path now): no "Period." request, no cue.
+  const bare = await prepareSentenceRecording('Moving abroad helped him.', options);
+  assert.deepEqual(requests, ['Moving abroad helped him.']);
+  assert.equal(bare.cue, null);
+  requests.length = 0;
+  const result = await prepareSentenceRecording('Moving abroad helped him.', { ...options, punctuation: true });
   assert.deepEqual(requests, ['Moving abroad helped him.', 'Period.']);
   const clips = recordingClips(result);
   const plain = recordingClips({ ...result, cue: null });

@@ -1146,20 +1146,21 @@ check('spoken punctuation defaults to the rule', (await teacher('assignments/get
 check('the teacher can fix the spoken punctuation', (await teacher('assignments/update-settings', { code: waitingCode, spokenPunctuation: 'ends' })).payload.record.spokenPunctuation === 'ends'
   && (await teacher('assignments/update-settings', { code: waitingCode, spokenPunctuation: 'loud' })).status === 400);
 // Commas are marked only when the recording dictates them.
-const commaCode = (await teacher('assignments/create', { text: 'Yes, please. No, thanks.', title: 'Commas', grading: { ignorePunctuation: false }, commasDictated: true })).payload.code;
-check('an assignment can say its recording dictates commas', (await teacher('assignments/get', { code: commaCode })).payload.record.commasDictated === true);
+const commaCode = (await teacher('assignments/create', { text: 'Yes, please. No, thanks.', title: 'Commas', grading: { ignorePunctuation: false }, dictatedPunctuation: 'all' })).payload.code;
+check('an assignment can say what its recording dictates', (await teacher('assignments/get', { code: commaCode })).payload.record.dictatedPunctuation === 'ends,inner,commas');
 await publishTyped(commaCode, 2);
 const commaRun = await begin(commaCode);
 await call(`/api/assignments/${commaCode}/submit`, { method: 'POST', body: { attemptId: commaRun.payload.attemptId, answers: ['Yes please.', 'No, thanks.'] } });
 const commaResults = await call(`/api/assignments/${commaCode}/results?attemptId=${commaRun.payload.attemptId}`);
 check('a missing dictated comma costs a word', commaResults.status === 200 && commaResults.payload.results.sentences[0].missed === 1);
-check('new text means new audio: commas no longer dictated', (await teacher('assignments/update-content', { code: commaCode, text: 'Yes, please.' })).payload.record.commasDictated === false);
+check('new text means new audio: nothing dictated', (await teacher('assignments/update-content', { code: commaCode, text: 'Yes, please.' })).payload.record.dictatedPunctuation === '');
 await publishTyped(commaCode, 1);
 const commaRun2 = await begin(commaCode);
 await call(`/api/assignments/${commaCode}/submit`, { method: 'POST', body: { attemptId: commaRun2.payload.attemptId, answers: ['Yes please.'] } });
 const commaResults2 = await call(`/api/assignments/${commaCode}/results?attemptId=${commaRun2.payload.attemptId}`);
-check('an undictated comma is not marked even with punctuation checked', commaResults2.status === 200 && commaResults2.payload.results.sentences[0].missed === 0);
-check('the flag can be set from the settings', (await teacher('assignments/update-settings', { code: commaCode, commasDictated: true })).payload.record.commasDictated === true);
+check('undictated punctuation is not marked even with punctuation checked', commaResults2.status === 200 && commaResults2.payload.results.sentences[0].missed === 0);
+check('the level can be set from the settings, nonsense refused', (await teacher('assignments/update-settings', { code: commaCode, dictatedPunctuation: 'commas,inner' })).payload.record.dictatedPunctuation === 'inner,commas'
+  && (await teacher('assignments/update-settings', { code: commaCode, dictatedPunctuation: 'loud' })).status === 400);
 await call('/api/teacher/assignments/delete', { method: 'POST', body: { password: PASSWORD, code: commaCode } });
 
 const fixedAtCreate = await teacher('assignments/create', { text: 'One. Two.', title: 'Fixed', spokenPunctuation: 'none' });

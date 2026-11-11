@@ -345,7 +345,7 @@ function PracticeApp() {
   if (appState === 'preparing' || appState === 'ready') {
     screen = <div className="app-container notebook-container"><div className="glass-panel notebook-panel">
       <h1>{appState === 'ready' ? 'Notebook audio ready' : 'Preparing notebook audio'}</h1>
-      <p className="field-hint">{delivery === 'phrases' ? 'Listen to short phrases and write at your own pace.' : 'Listen to full sentences and write at your own pace.'} Sentence endings are announced aloud.</p>
+      <p className="field-hint">{delivery === 'phrases' ? 'Listen to short phrases and write at your own pace.' : 'Listen to full sentences and write at your own pace.'}</p>
       <p role="status">{appState === 'ready' ? `${sentences.length} ${unit}${sentences.length !== 1 ? 's' : ''}. Have your notebook ready.` : prepareProgress}</p>
       {prepareError && <p className="fetch-error" role="alert">{prepareError}</p>}
       {appState === 'ready' && <button className="btn-primary" onClick={() => { setAppState('dictating'); playNotebook(0); }}>Start notebook dictation</button>}

@@ -39,7 +39,7 @@ async function synthesize(text, lang, rate) {
  *
  * Returns the indexes that did not make it.
  */
-export async function recordSentences(code, sentences, { lang, rate, only, onSettled, mode, text, delivery: selectedDelivery, prepared, cues = mode === 'notebook' }) {
+export async function recordSentences(code, sentences, { lang, rate, only, onSettled, mode, text, delivery: selectedDelivery, prepared, cues = false }) {
   const delivery = deliveryFor({ mode, delivery: selectedDelivery });
   if (prepared) {
     if (!validatedNotebookSegments(text, prepared.segments)) throw new Error('Reviewed phrases must preserve the original passage.');
@@ -104,7 +104,9 @@ export async function recordSentences(code, sentences, { lang, rate, only, onSet
  * segmentGroups). Same contract as recordSentences: returns the indexes that
  * did not make it.
  */
-export async function rerecordSegments(code, segments, { lang, rate, mode, only, onSettled, cues = mode === 'notebook' }) {
+// `cues`: attach a spoken sentence-end cue. Off: synthetic voices dictate no
+// punctuation (see notebookAudio.js); kept as an option for completeness.
+export async function rerecordSegments(code, segments, { lang, rate, only, onSettled, cues = false }) {
   const wanted = (only || segments.map((_, i) => i)).slice().sort((a, b) => a - b);
   const failed = [];
   const groups = segmentGroups(segments);

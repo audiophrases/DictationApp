@@ -8,8 +8,10 @@ hidden until they have handed their work in.
 
 Practice setup and assignment creation both offer **Read in**: choose **Full
 sentences** or **Short phrases (segmented)**, whether answers are typed in the
-app or written in a notebook. Typed phrases are submitted and marked separately;
-notebook recordings announce punctuation at each sentence ending. Existing
+app or written in a notebook. Typed phrases are submitted and marked separately.
+Synthetic voices (TTS, Listening Studio) never dictate punctuation, in any
+mode: the pause before a spliced "Period." was too awkward. Only voice actors
+say punctuation, as chosen when their session is set up (below). Existing
 settings and assignments keep their defaults: full sentences for typing and
 short phrases for notebooks.
 
@@ -76,8 +78,8 @@ studio's library with its credit and chooses it. Then choose **Fixed voice** (sa
 **Acted** (follows a delivery note), and approve the voice sample (**↻ Another
 sample**, **Save voice to library**) before every sentence is made. Each
 sentence's words are checked with Whisper and retried once if they differ;
-**↻ Try again** makes a new take of one sentence only. Notebook punctuation cues
-are said in the same voice. Then review the splits as above. Leaving and coming
+**↻ Try again** makes a new take of one sentence only. No punctuation cue is
+added. Then review the splits as above. Leaving and coming
 back finds the same studio recording, and only what changed is made again.
 English, French, Spanish, German, Italian, Portuguese and Russian only; the
 voice speed setting doesn't apply (ask for the pace in the description, or
@@ -89,18 +91,29 @@ stay in the studio's own page.
 
 Human voices use **Choose voice and review splits > Human voices · recording
 sessions**, backed by the same PinPlay service and volunteer recording page as
-Listening Studio. Enter the PinPlay teacher password (kept in memory), create a
-session with one complete sentence per line and an actor name for each, then
-share the whole-passage or actor-specific recorder link. Actors record on their
+Listening Studio. Enter the PinPlay teacher password (kept in memory), then
+**Set up the recording session…** opens a keyboard-first setup dialog after
+PinPlay's own assignment setup (`src/components/RecordingSetupDialog.jsx`):
+step cards chosen with ← →, Enter to continue, Esc to close. **Punctuation**:
+what the actors say aloud, *No punctuation* / *Sentence ends* / *Ends and inner
+marks* / *Everything, commas too*, pre-selected from the dictation's settings,
+with a line saying what students will then hear (and Check will mark) and an
+example line. **Actors**: one reader or one name per sentence, and the session
+name. **Review**: the whole script as the actors will read it; Enter creates
+the assignment (as a draft) and the session. Then share the whole-passage or
+actor-specific recorder link. Actors record on their
 own phone/computer; no installation or login is needed. Dictation sessions
 turn off volunteer text editing so the answer key stays aligned. Each line
 shows the punctuation the actor says aloud in square brackets, in the
 dictation's language (`src/lib/spokenPunctuation.js`): periods, question and
-exclamation marks, colons, semicolons, quotation marks and new paragraphs (a
-line break in the passage), e.g. `He said: [colon] [open quote] “Stop.”
+exclamation marks, colons, semicolons, quotation marks, commas and new
+paragraphs (a line break in the passage), as far as the chosen level goes
+(`annotateSentence(…, { level })`; commas inside numbers are never said), e.g. `He said: [colon] [open quote] “Stop.”
 [period] [close quote]`, `The end. [period] [new paragraph]`, Catalan `[punt i a
 part]`, Spanish `[punto y aparte]`, `[abre interrogación] ¿…? [cierra
-interrogación]`. Commas are not said. The notes are removed again when takes
+interrogación]`, `By spring, [comma] it was easy. [period]`. The level of a
+session is read back from its notes (`scriptLevel`), so sessions made before
+the setup dialog work as what their actors were given. The notes are removed again when takes
 are matched to sentences, so a passage's own brackets such as `[sic]` still
 match, and sessions made before the notes still work.
 
@@ -117,9 +130,8 @@ studio, **Back to the recording session** keeps your split changes, and
 **Return to splitting studio** brings them back as long as the takes stay the
 same. The original phrase logic is retained; human audio has no word timings,
 so the cuts start at the nearest pause. There is no tick-box listening check:
-you hear the takes while splitting. Move words or adjust cut times as usual. Human audio keeps the actor's pace; for
-sessions made before the bracket notes, notebook punctuation cues can
-optionally be added with TTS (sessions with notes already say them). Takes are copied into the
+you hear the takes while splitting. Move words or adjust cut times as usual. Human audio keeps the actor's pace,
+and no synthetic punctuation cue is ever added to it. Takes are copied into the
 assignment on save; subsequent PinPlay retakes do not change a published
 assignment automatically.
 
@@ -127,13 +139,13 @@ assignment automatically.
 With **Full sentences**, splits in the studio are only for listening and
 moving cut points: on save each sentence is exported whole from its reviewed
 audio (`prepareReviewedAudio`, which merges the splits so no silence is
-added), keeping the trimmed ends and the punctuation cue. With **Short
+added), keeping the trimmed ends. With **Short
 phrases**, the splits are the phrases students hear. To change the reading
 of an existing assignment, use **Edit > Recordings > Read in** (below).
 
 **The assignment is created together with the recording session.** In **New
 assignment**, fill in the title, class, due date and settings, then **Human
-voices → Create assignment and recording session**: the assignment is saved
+voices → Set up the recording session…** (the dialog above): the assignment is saved
 at once as a draft (students can't see it) with the session's id on it
 (`record.recording`, worker `recordingFrom`), and **Done for now** returns to
 the list. The list shows it as **waiting for actors**; opening it offers
@@ -148,13 +160,20 @@ Sentence ends (period, question mark…) in notebooks and in segmented
 dictations (the only way a segment is known to close the sentence), never in
 typed full-sentence ones; inner marks (colon, semicolon, quotes) in notebooks
 or when Punctuation is marked (Check); new paragraphs in notebooks only.
-Commas are an inner mark too: actors say them (`[comma]`, `[coma]`,
-`[virgule]`…), and since TTS and studio voices never do, **commas are marked
-only when the recording dictates them**: the assignment carries
-`commasDictated` (set by the teacher's browser from where the audio came,
-reset by a text change or a TTS re-record), and the worker grades with
-`ignoreCommas: !commasDictated` (`src/lib/grading.js`), so a checked-punctuation
-dictation never docks a comma nobody could hear. The teacher can override the rule per assignment
+Commas count as an inner mark. **With Punctuation = Check, only what students
+heard dictated is marked**: the assignment carries `dictatedPunctuation`, the
+classes heard (`ends`, `inner`, `commas`, e.g. `'inner,commas'` for a typed
+full-sentence dictation whose actors said everything; `''` for TTS and studio
+voices), set by the teacher's browser from where the audio came
+(`heardPunctuation`: what the actors said, less what this dictation cuts) and
+reset by a text change or a TTS re-record. The worker grades with
+`dictated: record.dictatedPunctuation` (`src/lib/grading.js`): every other
+mark is removed before comparing, so no undictated punctuation ever costs a
+word (apostrophes and hyphens are spelling and always count). The feedback
+still shows it: a matched word reads as the original writes it, and where the
+student's punctuation differed the word has a dotted underline and a hover
+note ("The punctuation is shown as written; it isn't marked"; `reviewTiles`
+flags it, `DiffText` draws it). The teacher can override the rule per assignment
 (**Spoken punctuation**: by the rule / all / sentence ends only / none, in
 New assignment and Edit > Settings; worker field `spokenPunctuation`). For
 voice actors the notes are cut out of the take (`src/lib/spokenPunctuationCut.js`):
@@ -162,10 +181,10 @@ the recogniser's words are aligned to the *spoken script* (sentence words plus
 the bracket notes, `spokenScript`), a note is removed only when every word of
 it was actually heard, an inner cut leaves a 0.15 s gap so the rhythm
 survives, and the sentence words come back as boundaries in the new time. TTS
-and Listening Studio voices never say inner marks; the rule only decides
-whether their sentence-end cue is attached (`cues` in buildAssignment,
-`cueLines`). The studio's status line reports what was done ("spoken
-punctuation: sentence ends only", "2 not found, kept"). A changed override
+and Listening Studio voices dictate nothing, so the rule has nothing to cut
+(`cues` in buildAssignment and `cueLines` stay off). The studio's status line
+reports what students hear ("students hear sentence ends", "2 not found,
+kept"). A changed override
 applies the next time recordings are brought into the studio.
 
 Sessions persist in PinPlay and can be reopened later with **Load existing

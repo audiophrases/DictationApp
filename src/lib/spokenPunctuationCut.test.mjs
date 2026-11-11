@@ -127,3 +127,26 @@ test('with the audio at hand, a removal runs from the gap before the note to the
   const ends = planPunctuationCuts(line, heard, buffer, { ends: true, inner: false, paragraph: false });
   assert.ok(ends.removals[0].start > 2.25 && ends.removals[0].start < 2.41, `starts in the gap after the period: ${ends.removals[0].start}`);
 });
+
+test('levels: what actors say, what students hear, what gets marked', async () => {
+  const { scriptLevel } = await import('./spokenPunctuation.js');
+  const { heardPunctuation, describeHeard, policyForLevel, dictationLevelAtLeast } = await import('./punctuationPolicy.js');
+  const sentence = 'He asked: "Are you, friend, homesick?"';
+  for (const level of ['none', 'ends', 'inner', 'all']) {
+    assert.equal(scriptLevel([annotateSentence(sentence, 'en-US', { level, paragraph: true })]), level, level);
+  }
+  assert.equal(scriptLevel(['No notes here.']), 'none');
+  assert.equal(scriptLevel(['Fin. [punto y aparte]']), 'ends');
+  // Typed full sentences with Check: the period is cut, commas and colons heard.
+  const typedFull = spokenPunctuationRule({ mode: 'typing', delivery: 'sentences', grading: { ignorePunctuation: false } });
+  assert.equal(heardPunctuation('all', typedFull), 'inner,commas');
+  assert.equal(heardPunctuation('ends', typedFull), '');
+  // Typed segments, punctuation ignored: only sentence ends are played.
+  assert.equal(heardPunctuation('all', spokenPunctuationRule({ mode: 'typing', delivery: 'phrases', grading: { ignorePunctuation: true } })), 'ends');
+  assert.equal(heardPunctuation('all', spokenPunctuationRule({ mode: 'notebook' })), 'ends,inner,commas');
+  assert.equal(heardPunctuation('none', spokenPunctuationRule({ mode: 'notebook' })), '');
+  assert.equal(describeHeard('ends,inner,commas'), 'sentence ends, colons, semicolons and quotes and commas');
+  assert.equal(describeHeard(''), 'no punctuation');
+  assert.deepEqual(policyForLevel('ends', 'notebook'), { ends: true, inner: false, paragraph: true });
+  assert.equal(dictationLevelAtLeast('inner', 'ends'), true);
+});

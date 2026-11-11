@@ -41,10 +41,23 @@ export function reviewTiles(segments) {
     } else if (current.type === 'extra') {
       current.words.forEach((word) => tiles.push({ kind: 'extra', typed: word }));
     } else {
-      current.words.forEach((word) => tiles.push({ kind: 'right', expected: word }));
+      current.words.forEach((word, j) => {
+        const typed = current.typed?.[j];
+        tiles.push(punctuationOnly(word, typed) ? { kind: 'right', expected: word, typed, punctuation: true } : { kind: 'right', expected: word });
+      });
     }
   }
   return tiles;
+}
+
+// A right word whose punctuation differs from what was typed: the marking
+// didn't count it (not dictated, or punctuation ignored), but the feedback
+// shows the punctuation as written. Case and accents alone don't count here.
+const PUNCT = /[\p{P}\p{S}]/gu;
+const bare = (word) => word.replace(PUNCT, '').toLocaleLowerCase();
+const marksOf = (word) => (word.match(PUNCT) || []).join('').replace(/[‘’`]/g, "'");
+function punctuationOnly(expected, typed) {
+  return typeof typed === 'string' && bare(expected) === bare(typed) && marksOf(expected) !== marksOf(typed);
 }
 
 const wordCount = (text) => (text ? text.split(' ').length : 0);

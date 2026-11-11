@@ -100,7 +100,6 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
       mode,
       delivery,
       text: passage,
-      cues: policy.ends,
       prepared: preparedAudio.current,
       onSettled: (_index, failure) => {
         setRecorded((n) => n + 1);
@@ -129,9 +128,9 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
           draftSentences.current = list;
         }
         // Settings the teacher may have changed since the draft was made.
-        await updateAssignmentSettings(draftCode, { title, className, dueAt: endOfDay(due), attemptsLimit, maxListens, feedbackMode, allowSlowdown, grading, spokenPunctuation, commasDictated: !!preparedAudio.current?.commasDictated });
+        await updateAssignmentSettings(draftCode, { title, className, dueAt: endOfDay(due), attemptsLimit, maxListens, feedbackMode, allowSlowdown, grading, spokenPunctuation, dictatedPunctuation: preparedAudio.current?.dictatedPunctuation ?? '' });
       } else {
-        ({ code: newCode, sentences: list } = await createAssignment({ ...fields(), segments: reviewed, commasDictated: !!preparedAudio.current?.commasDictated }));
+        ({ code: newCode, sentences: list } = await createAssignment({ ...fields(), segments: reviewed, dictatedPunctuation: preparedAudio.current?.dictatedPunctuation ?? '' }));
       }
       createdCode = newCode;
       setCode(newCode);
@@ -358,8 +357,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
             <p className="field-hint">
               All three are ignored by default, so only the words count. Choose Check for a
               spelling-focused task. Fixed when you create the assignment — students can't loosen
-              it to re-mark themselves. Commas count only when the recording dictates them (voice
-              actors saying “comma”); TTS and studio voices never do.
+              it to re-mark themselves. With Check, only the punctuation students hear dictated is marked: none with TTS and studio voices, and with voice actors what they were asked to say (less what the dictation leaves out). The rest is shown in the feedback, never deducted.
             </p>
           </div>}
 
@@ -369,7 +367,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
               {SPOKEN_PUNCTUATION_CHOICES.map((c) => <option key={c.value} value={c.value}>{c.name}</option>)}
             </select>
             <p className="field-hint">
-              Students hear punctuation they have to produce: sentence ends in notebooks and segmented dictations, colons, semicolons and quotes when Punctuation is marked, new paragraphs in notebooks. With these settings: {describeSpokenPunctuation(policy)}. Voice actors’ spoken punctuation is cut out where not played; TTS and studio voices add the sentence-end cue when it is.
+              Students hear punctuation they have to produce: sentence ends in notebooks and segmented dictations, colons, semicolons and quotes when Punctuation is marked, new paragraphs in notebooks. With these settings: {describeSpokenPunctuation(policy)}. Applies to voice actors’ spoken punctuation, cut out where not played; TTS and studio voices never dictate punctuation.
             </p>
           </div>
 
@@ -382,7 +380,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
               style={{ minHeight: '180px' }}
             />
             <p className="field-hint">
-              {previewCount} {unit}{previewCount !== 1 ? 's' : ''} — {delivery === 'phrases' ? 'short grammatical phrases.' : 'full sentences.'} {mode === 'notebook' && 'Sentence endings are announced aloud.'}
+              {previewCount} {unit}{previewCount !== 1 ? 's' : ''} — {delivery === 'phrases' ? 'short grammatical phrases.' : 'full sentences.'}
             </p>
           </div>
 

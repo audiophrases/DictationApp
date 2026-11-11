@@ -13,10 +13,10 @@ import {
 const STUDIO_WARNING = 'Listening Studio voice: phrase cuts were placed at pauses. Listen and adjust them by ear.';
 const CHECKS = { ok: '✓ Words match', minor: 'Check by ear', differs: '⚠ Words differ' };
 
-export default function ListeningStudioVoices({ plan, title, lang, mode, policy = null, onCancel, ...studioProps }) {
-  // Sentence-end cues in the same voice, when students should hear them
-  // (punctuationPolicy.js); without a policy, as a notebook always did.
-  const cueEnds = policy ? policy.ends : mode === 'notebook';
+export default function ListeningStudioVoices({ plan, title, lang, mode, policy: _policy, onCancel, ...studioProps }) {
+  // No sentence-end cues: synthetic voices dictate no punctuation (a spliced
+  // "Period." after the sentence sounded awkward). Kept as a switch, off.
+  const cueEnds = false;
   const cues = useMemo(() => cueLines(plan, lang, cueEnds), [plan, lang, cueEnds]);
   const expected = useMemo(() => [...plan.map((part) => part.sentence), ...cues], [plan, cues]);
   const key = useMemo(() => planKey(plan, lang, mode), [plan, lang, mode]);

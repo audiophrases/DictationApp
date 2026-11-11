@@ -62,18 +62,33 @@ check('ignore accents is on by default', DEFAULT_GRADING_OPTIONS.ignoreAccents =
     pct(g) === 100, `scored ${pct(g)}%`);
 }
 
-// Commas count only when the recording dictated them (ignoreCommas), and only
-// matter at all when punctuation is checked.
+// With punctuation checked, only what the recording dictated counts (the
+// 'dictated' level): nothing for TTS, up to commas for voice actors.
 {
   const checked = { ignoreCase: true, ignorePunctuation: false, ignoreAccents: true };
-  check('with commas dictated, "Yes" without its comma is wrong',
-    gradeSentence('Yes, please.', 'Yes please.', { ...checked, ignoreCommas: false }).correct === 1);
-  check('with commas not dictated, the comma is not marked',
-    gradeSentence('Yes, please.', 'Yes please.', { ...checked, ignoreCommas: true }).correct === 2);
-  check('the period still counts when commas are not dictated',
-    gradeSentence('Yes, please.', 'Yes please', { ...checked, ignoreCommas: true }).correct === 1);
-  check('ignored punctuation ignores commas too',
-    gradeSentence('Yes, please.', 'yes please', { ...checked, ignorePunctuation: true, ignoreCommas: false }).correct === 2);
+  const mark = (dictated, typed) => gradeSentence('Yes, please: "now".', typed, { ...checked, dictated });
+  check('TTS dictates nothing: no punctuation is marked', mark('none', 'yes please now').correct === 3);
+  check('sentence ends dictated: the period counts, the comma and colon do not',
+    mark('ends', 'Yes please: now').correct === 2 && mark('ends', 'Yes please now.').correct === 3);
+  check('inner marks dictated: the colon and quotes count too, the comma does not',
+    mark('inner', 'Yes please: "now".').correct === 3 && mark('inner', 'Yes please now.').correct === 1);
+  check('everything dictated: the comma counts',
+    mark('all', 'Yes please: "now".').correct === 2 && mark('all', 'Yes, please: "now".').correct === 3);
+  check('ignored punctuation ignores it all whatever was dictated',
+    gradeSentence('Yes, please.', 'yes please', { ...checked, ignorePunctuation: true, dictated: 'all' }).correct === 2);
+  // Classes, not levels: a typed full-sentence dictation hears commas but never the period.
+  check('commas heard, period cut: the comma counts, the period does not',
+    gradeSentence('Yes, please.', 'Yes please.', { ...checked, dictated: 'inner,commas' }).correct === 1
+    && gradeSentence('Yes, please.', 'Yes, please', { ...checked, dictated: 'inner,commas' }).correct === 2);
+  check('nothing dictated (\'\' or none) marks no punctuation; apostrophes still count',
+    gradeSentence('It\'s here, now.', 'its here now', { ...checked, dictated: '' }).correct === 2
+    && gradeSentence('It\'s here, now.', 'It\'s here now', { ...checked, dictated: 'none' }).correct === 3);
+  check('without a dictated setting (free practice), Check marks all punctuation as before',
+    gradeSentence('Yes, please.', 'Yes please.', checked).correct === 1);
+  // Matched words read as the original writes them, with what was typed alongside.
+  const shown = gradeSentence('Yes, please.', 'yes please', { ...checked, dictated: '' }).segments;
+  check('matched words keep the original’s punctuation for the feedback',
+    shown.length === 1 && shown[0].words.join(' ') === 'Yes, please.' && shown[0].typed.join(' ') === 'yes please');
 }
 
 console.log(failures === 0 ? '\nAll marking checks passed.' : `\n${failures} CHECK(S) FAILED.`);

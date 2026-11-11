@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import AudioSplitStudio from './AudioSplitStudio';
 import {
   actorLink, sessionRequest, sessionFields, sessionSaysPunctuation, sessionScript, validateSession, loadTake, trimTake,
@@ -7,9 +7,10 @@ import {
 import { prepareHumanSentenceRecording } from '../lib/notebookAudio';
 import { alignTakes } from '../lib/browserWhisper';
 import { applyPunctuationPolicy } from '../lib/spokenPunctuationCut';
-import { hasSpokenPunctuation } from '../lib/spokenPunctuation';
-import { describeSpokenPunctuation } from '../lib/punctuationPolicy';
+import { hasSpokenPunctuation, scriptLevel } from '../lib/spokenPunctuation';
+import { describeHeard, heardPunctuation } from '../lib/punctuationPolicy';
 import WordTimingsOption from './WordTimingsOption';
+import RecordingSetupDialog from './RecordingSetupDialog';
 import { wavClip } from '../lib/notebookWav';
 
 /**
@@ -21,24 +22,30 @@ import { wavClip } from '../lib/notebookWav';
  *   sessionId               → a session remembered earlier: offered to load first
  *   onFinishLater()         → leaves while the actors record
  */
+const ALL_PLAYED = { ends: true, inner: true, paragraph: true };
+
 // What was done with the actors' spoken punctuation, for the studio's status line.
-function punctuationNote(said, policy, notes) {
+function punctuationNote(said, heard, notes) {
   if (!said) return '';
   if (notes.unknown && !notes.cut && !notes.kept) return 'spoken punctuation kept as recorded (no word timings)';
-  const parts = [describeSpokenPunctuation(policy || { ends: true, inner: true, paragraph: true })];
+  const parts = [`students hear ${describeHeard(heard)}`];
   if (notes.unsure || notes.unknown) parts.push(`${notes.unsure + notes.unknown} not found, kept`);
   return parts.join(', ');
 }
 
-export default function HumanRecordingSession({ plan, passage, title, lang, rate, mode, delivery, policy = null, onCancel, onAccept, acceptLabel, segmentChangeNotice, planChanged, requireServer, onSessionPassage,
+// The level the setup dialog starts on: what this dictation lets students hear.
+function suggestedLevel(policy, mode) {
+  if (mode === 'notebook' || policy?.inner) return 'all';
+  return policy?.ends ? 'ends' : 'none';
+}
+
+export default function HumanRecordingSession({ plan, passage, title, lang, rate, mode, delivery, policy = null, onCancel, onAccept, acceptLabel, segmentChangeNotice, planChanged, onSessionPassage,
   createDraft, onSessionCreated, draftCode = '', sessionId = '', onFinishLater }) {
-  const script = useMemo(() => sessionScript(plan, { lang, passage }), [plan, lang, passage]);
   const [password, setPassword] = useState('');
   const [sessions, setSessions] = useState(null);
   const [session, setSession] = useState(null);
   const [otherSession, setOtherSession] = useState(false); // a remembered session, but the teacher wants another
-  const [speakers, setSpeakers] = useState(() => plan.map(() => 'Narrator'));
-  const [sessionTitle, setSessionTitle] = useState(title || 'Dictation recording');
+  const [setupOpen, setSetupOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -49,7 +56,6 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
   // session, for as long as the takes it was made from stay the same.
   const [studio, setStudio] = useState(null); // { key, recordings }
   const [inStudio, setInStudio] = useState(false);
-  const [punctuation, setPunctuation] = useState(false);
   const [timings, setTimings] = useState(true);
   const cache = useRef(new Map());
   const controller = useRef(null);
@@ -117,10 +123,9 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
     validateSession(next, plan); setSession(next);
     setPreview((current) => current && ({ ...current, edited: false }));
   }
-  // Actors who said the punctuation need no TTS cue after them; for older
-  // sessions without notes, the cue follows the policy (or the tick box).
-  const addsCues = (current) => !sessionSaysPunctuation(current) && (policy ? policy.ends : punctuation);
-  const studioKey = (current) => `${sessionTakesKey(current)}|${addsCues(current)}|${timings}|${JSON.stringify(policy)}`;
+  // No synthetic cue is ever added to a human take: actors say the
+  // punctuation the teacher chose in the setup, or none.
+  const studioKey = (current) => `${sessionTakesKey(current)}|${timings}|${JSON.stringify(policy)}`;
   const kept = !!(studio && session && studio.key === studioKey(session));
 
   // Straight from a loaded session to the studio once every sentence has a
@@ -135,11 +140,8 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
     const key = studioKey(latest);
     if (studio?.key === key) { setMessage(''); setInStudio(true); return; }
     const context = new AudioContext({ sampleRate: 24000 });
-    const cueCache = new Map();
     const results = [];
     try {
-      const addCues = addsCues(latest);
-      if (addCues) requireServer?.();
       const takes = [];
       for (let i = 0; i < plan.length; i++) {
         setMessage(`Loading sentence ${i + 1} of ${plan.length}…`);
@@ -152,6 +154,10 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
       // its pause-based cuts. Where the actors said the punctuation, the
       // same words decide what students hear of it (punctuationPolicy.js).
       const said = sessionSaysPunctuation(latest);
+      const played = policy || ALL_PLAYED;
+      // What students hear dictated, and so what checked punctuation marks:
+      // what the actors were asked to say, less what this dictation cuts.
+      const heard = said ? heardPunctuation(scriptLevel(latest.lines.map((line) => line.text)), played) : '';
       const found = timings ? await alignTakes(takes, lang, { onProgress: setMessage, signal, withHeard: true }) : [];
       if (signal.aborted) return;
       const notes = { kept: 0, cut: 0, unsure: 0, unknown: 0 };
@@ -160,27 +166,22 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
         let { buffer } = takes[i];
         let boundaries = found[i]?.boundaries || null;
         if (said && hasSpokenPunctuation(latest.lines[i].text)) {
-          const applied = found[i]?.heard ? applyPunctuationPolicy(latest.lines[i].text, found[i].heard, buffer, policy, context) : null;
+          const applied = found[i]?.heard ? applyPunctuationPolicy(latest.lines[i].text, found[i].heard, buffer, played, context) : null;
           if (applied) { ({ buffer, boundaries } = applied); notes.kept += applied.notes.kept; notes.cut += applied.notes.cut; notes.unsure += applied.notes.unsure; }
           else notes.unknown += 1;
         }
-        results.push(await prepareHumanSentenceRecording(plan[i], buffer, {
-          lang, rate, context, cueCache, punctuation: addCues, signal, boundaries,
-        }));
-        // Commas the actors said stay in when inner marks are played: then
-        // the assignment may mark them.
-        results.at(-1).commasDictated = said && (policy ? policy.inner : true) && /\[(comma|coma|virgule|Komma|virgola|vírgula|virgulă|запятая|кома|فاصلة)\]/u.test(latest.lines[i].text);
+        results.push({ ...await prepareHumanSentenceRecording(plan[i], buffer, { lang, rate, context, signal, boundaries }), dictated: heard });
         if (signal.aborted) return;
       }
       setMessage('');
-      setStudio({ key, recordings: results, note: punctuationNote(said, policy, notes) });
+      setStudio({ key, recordings: results, note: punctuationNote(said, heard, notes) });
       setInStudio(true);
     } finally { await context.close(); }
   }
 
   if (inStudio && studio) return <AudioSplitStudio plan={plan} lang={lang} rate={rate} mode={mode} delivery={delivery}
     initialRecordings={studio.recordings} onAccept={onAccept} acceptLabel={acceptLabel} segmentChangeNotice={segmentChangeNotice} planChanged={planChanged}
-    policy={policy} statusNote={studio.note || ''}
+    statusNote={studio.note || ''}
     backLabel="Back to the recording session"
     onCancel={(recordings) => { if (recordings) setStudio((current) => ({ ...current, recordings })); setInStudio(false); }} />;
 
@@ -208,9 +209,6 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
         <p className="field-hint">Your split changes are kept while the takes stay the same.</p>
       </> : progress.ready ? <>
         {options && <WordTimingsOption checked={timings} disabled={busy} onChange={setTimings} />}
-        {options && !policy && mode === 'notebook' && !sessionSaysPunctuation(session) && <label>
-          <input type="checkbox" checked={punctuation} disabled={busy} onChange={(e) => setPunctuation(e.target.checked)} /> Add TTS punctuation cues after the human sentences
-        </label>}
         <div className="edit-actions">
           <button className="btn-primary" disabled={busy} onClick={() => run(openStudio)}>Open splitting studio</button>
           <button className="btn-ghost btn-small" disabled={busy} onClick={refresh}>Refresh takes</button>
@@ -247,26 +245,27 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
       {sessions && <ul>{sessions.map((item) => <li key={item.id} style={{ margin: '0.5rem 0' }}>
         <button className="btn-ghost" disabled={busy} onClick={() => run((signal) => open(item.id, signal))}>{item.title} · {item.recorded ?? item.approved}/{item.total} recorded</button>
       </li>)}{!sessions.length && <li>No recording sessions yet.</li>}</ul>}
-      <details open={!sessions && plan.length > 0} style={{ margin: '1rem 0' }}><summary>Create a session for this dictation</summary>
-        {createDraft && <p className="field-hint">The assignment is created with the session, as a draft students can’t see yet. Fill in its title, class, due date and settings first. You can then close this page and come back for the takes from Assignments.</p>}
-        <label className="field-label">Session title<input value={sessionTitle} maxLength={120} disabled={busy} onChange={(e) => setSessionTitle(e.target.value)} /></label>
-        <p className="field-hint">Use the same actor name throughout for one reader, or assign different sentences to different actors. Actors read each line as written, saying the punctuation shown in [brackets]. Sentence text editing is disabled for this session.</p>
-        <ol>{plan.map((part, i) => <li key={i} style={{ margin: '0.75rem 0' }}>
-          <p>{script[i]}</p>
-          <label>Actor for sentence {i + 1}<input maxLength={40} value={speakers[i]} disabled={busy}
-            onChange={(e) => setSpeakers((items) => items.map((item, j) => j === i ? e.target.value : item))} /></label>
-        </li>)}</ol>
-        <button className="btn-primary" disabled={busy || !password || !plan.length} onClick={() => run(async (signal) => {
-          const fields = sessionFields(plan, speakers, sessionTitle, { lang, passage });
+      {plan.length > 0 && <div className="session-next" style={{ marginTop: '1rem' }}>
+        <p><strong>New recording session for this dictation</strong></p>
+        <p className="field-hint">{createDraft ? 'The assignment is created with the session, as a draft students can’t see yet: fill in its title, class, due date and settings first. ' : ''}Choose the punctuation the actors say and who reads. Arrow keys choose, Enter continues.</p>
+        <div className="edit-actions"><button className="btn-primary" disabled={busy || !password} onClick={() => { setError(''); setSetupOpen(true); }}>Set up the recording session…</button></div>
+      </div>}
+      {setupOpen && <RecordingSetupDialog plan={plan} title={title} busy={busy} error={error} createsAssignment={!!createDraft && !draftCode}
+        initialLevel={suggestedLevel(policy, mode)}
+        scriptFor={(level) => sessionScript(plan, { lang, passage, level })}
+        heardFor={(level) => describeHeard(heardPunctuation(level, policy || ALL_PLAYED))}
+        onClose={() => { if (!busy) setSetupOpen(false); }}
+        onCreate={({ level, speakers, title: sessionTitle }) => run(async (signal) => {
+          const fields = sessionFields(plan, speakers, sessionTitle, { lang, passage, level });
           // The assignment first: a session nobody can find again is the
           // problem this solves, and a draft without a session is just a draft.
           const code = draftCode || (createDraft ? await createDraft() : '');
           const { session: next } = await api('create', fields, signal);
           validateSession(next, plan);
           if (onSessionCreated) await onSessionCreated(next, code);
+          setSetupOpen(false);
           setSession(next);
-        })}>{createDraft ? 'Create assignment and recording session' : 'Create recording session'}</button>
-      </details>
+        })} />}
       </>}
     </> : <>
       <div className="session-heading">

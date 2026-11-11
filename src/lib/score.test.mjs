@@ -100,5 +100,12 @@ check(
 const summary = reviewSummary(tiles);
 check('the summary agrees with the grade', [summary.right, summary.wrong + summary.missing], [sample.correct, sample.missed]);
 
+// Punctuation the marking let pass is still shown, flagged, on the right word.
+check(
+  'a right word with different punctuation is flagged, case alone is not',
+  reviewTiles(gradeSentence('Yes, please. Now', 'yes please now').segments).map((t) => [t.kind, t.expected, !!t.punctuation]),
+  [['right', 'Yes,', true], ['right', 'please.', true], ['right', 'Now', false]]
+);
+
 console.log(failures === 0 ? '\nAll marking checks passed.' : `\n${failures} CHECK(S) FAILED.`);
 process.exit(failures === 0 ? 0 : 1);

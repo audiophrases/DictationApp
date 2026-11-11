@@ -15,6 +15,12 @@ function DiffText({ segments, typedBy = 'You' }) {
     <span className="marked-sentence">
       {tiles.map((tile, i) => {
         const gap = i < tiles.length - 1 ? ' ' : '';
+        // Right, but the punctuation as written differs from what was typed:
+        // shown for reference, never counted (it wasn't dictated, or
+        // punctuation isn't marked).
+        if (tile.kind === 'right' && tile.punctuation) {
+          return <span key={i}><span className="mark-punct" title={`${typedBy} wrote “${tile.typed}”. The punctuation is shown as written; it isn’t marked.`}>{tile.expected}</span>{gap}</span>;
+        }
         if (tile.kind === 'right') return <span key={i}>{tile.expected}{gap}</span>;
         // Staggers the mistakes in one after another, so the eye is drawn
         // along the sentence to each of them in turn.

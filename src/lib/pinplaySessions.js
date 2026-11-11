@@ -29,9 +29,11 @@ export async function sessionRequest(route, password, fields = {}, signal) {
 // What each actor reads: the sentence with the punctuation to say aloud in
 // [brackets] (spokenPunctuation.js), a new paragraph where the passage has a
 // line break. The brackets are the whole instruction: no direction.
-export function sessionScript(plan, { lang = 'en-US', passage = '' } = {}) {
+// `level`: which punctuation the actors say (none / ends / inner / all), chosen
+// by the teacher in the recording setup.
+export function sessionScript(plan, { lang = 'en-US', passage = '', level = 'all' } = {}) {
   const paragraphs = paragraphEnds(passage, plan.map((part) => part.sentence));
-  return plan.map((part, i) => annotateSentence(part.sentence, lang, { paragraph: paragraphs[i] }));
+  return plan.map((part, i) => annotateSentence(part.sentence, lang, { paragraph: paragraphs[i], level }));
 }
 
 export function sessionFields(plan, speakers, title, options = {}) {

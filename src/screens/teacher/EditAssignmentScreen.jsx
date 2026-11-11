@@ -14,9 +14,9 @@ import { deliveryFor, dictationUnit } from '../../lib/delivery';
 import AudioSplitStudio from '../../components/DictationAudioWorkflow';
 import { segmentGroups, sameSegmentPlan } from '../../lib/notebookShared';
 import { regroupRecordings } from '../../lib/reuseAudio';
-import { SPOKEN_PUNCTUATION_CHOICES, spokenPunctuationPolicy } from '../../lib/punctuationPolicy';
+import { SPOKEN_PUNCTUATION_CHOICES, spokenPunctuationPolicy, describeHeard } from '../../lib/punctuationPolicy';
 
-const SPOKEN_PUNCTUATION_HINT = 'By the rule, students hear punctuation they have to produce: sentence ends in notebooks and segmented dictations (how else would a segment be known to close the sentence?), colons, semicolons and quotes when Punctuation is marked, new paragraphs in notebooks only. Voice actors’ spoken punctuation is cut out where not played; TTS and studio voices add the sentence-end cue when it is.';
+const SPOKEN_PUNCTUATION_HINT = 'By the rule, students hear punctuation they have to produce: sentence ends in notebooks and segmented dictations (how else would a segment be known to close the sentence?), colons, semicolons and quotes when Punctuation is marked, new paragraphs in notebooks only. Applies to voice actors’ spoken punctuation, cut out where not played; TTS and studio voices never dictate punctuation.';
 import MarkingRules from '../../components/MarkingRules';
 
 const toDateInput = (ms) => {
@@ -130,7 +130,7 @@ function SettingsSection({ code, data, onSaved }) {
           <option value="typing">Type answers in the app</option>
           <option value="notebook">Notebook — write by hand</option>
         </select>
-        {form.mode !== record.mode && <p className="field-hint">The text and recordings are kept. Student attempts so far are cleared, because the two modes mean different things by an attempt.{form.mode === 'notebook' ? ' Sentence endings are only announced aloud if the recordings include them (human takes with punctuation notes, or notebook recordings).' : ''}</p>}
+        {form.mode !== record.mode && <p className="field-hint">The text and recordings are kept. Student attempts so far are cleared, because the two modes mean different things by an attempt.{form.mode === 'notebook' ? ' Punctuation is only dictated if voice actors read it; TTS and studio voices never do.' : ''}</p>}
       </div>
       <div className="settings-grid">
         <div><label className="field-label">Title</label><input value={form.title} onChange={(e) => set('title', e.target.value)} /></div>
@@ -187,7 +187,7 @@ function SettingsSection({ code, data, onSaved }) {
         {handedIn
           ? <p className="field-hint">Locked: students have handed in, and their scores were marked with these rules. Editing the text clears their work and unlocks it.</p>
           : <MarkingRules value={form.grading} onChange={(grading) => set('grading', grading)} />}
-        <p className="field-hint">Commas count only when the recording dictates them (voice actors saying “comma”); TTS and studio voices never do. {record.commasDictated ? 'This recording dictates them.' : 'This recording does not.'}</p>
+        <p className="field-hint">With Check, only the punctuation students hear dictated is marked: none with TTS and studio voices, and with voice actors what they were asked to say (less what the dictation leaves out). The rest is shown in the feedback, never deducted. This recording dictates {describeHeard(record.dictatedPunctuation)}.</p>
       </div>}
       {status.error && <div className="fetch-error" style={{ marginTop: '0.75rem' }}>{status.error}</div>}
       <div className="edit-actions">
@@ -274,7 +274,7 @@ function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
     requireServer?.();
     try {
       const failed = await rerecordSegments(code, sentences, {
-        lang: record.settings.lang, rate, mode: record.mode, only, cues: policy.ends,
+        lang: record.settings.lang, rate, mode: record.mode, only,
         onSettled: (_i, failure) => { count += 1; setProgress(`${count} of ${total}`); if (failure) reason = failure.message; },
       });
       if (failed.length) {
@@ -286,8 +286,8 @@ function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
       if (!only && !failed.length && rate !== record.settings?.rate) {
         await updateAssignmentSettings(code, { rate });
       }
-      // TTS never dictates commas: a whole re-record stops marking them.
-      if (!only && !failed.length && record.commasDictated) await updateAssignmentSettings(code, { commasDictated: false });
+      // TTS dictates no punctuation: a whole re-record stops marking any.
+      if (!only && !failed.length && record.dictatedPunctuation) await updateAssignmentSettings(code, { dictatedPunctuation: '' });
       // A draft left behind by a text edit whose recording was abandoned:
       // every recording now exists, so students can have it.
       if (!only && !failed.length && record.status === 'draft') await publishAssignment(code);
@@ -321,7 +321,7 @@ function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
       if (rate !== record.settings?.rate) settings.rate = rate;
       // The audio is in: the assignment no longer waits for its actors.
       if (sessionId) settings.recording = null;
-      if (!!prepared.commasDictated !== !!record.commasDictated) settings.commasDictated = !!prepared.commasDictated;
+      if ((prepared.dictatedPunctuation ?? '') !== (record.dictatedPunctuation ?? '')) settings.dictatedPunctuation = prepared.dictatedPunctuation ?? '';
       if (Object.keys(settings).length) await updateAssignmentSettings(code, settings);
       if (changed || savedStudioSegments.current || draft) await publishAssignment(code);
       setStudio(false);
@@ -403,7 +403,7 @@ function TextSection({ code, data, onSaved, requireServer }) {
     setError('');
     requireServer?.();
     const stragglers = await recordSentences(code, newList, {
-      lang, rate, only, mode: record.mode, delivery, text, cues: spokenPunctuationPolicy(record).ends,
+      lang, rate, only, mode: record.mode, delivery, text,
       onSettled: (_i, failure) => { setRecorded((n) => n + 1); if (failure) setError(failure.message); },
     });
     setFailed(stragglers);

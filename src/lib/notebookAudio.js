@@ -44,7 +44,9 @@ export async function prepareSentenceRecording(sentence, options) {
     cuts = estimatedCuts(segments, buffer.duration);
     warning = error.message;
   }
-  const label = options.punctuation === false ? '' : sentenceEndCue(sentence, lang);
+  // Synthetic voices never dictate punctuation (the pause before a spliced
+  // "Period." was too awkward): a cue only when asked for explicitly.
+  const label = options.punctuation === true ? sentenceEndCue(sentence, lang) : '';
   const cue = label ? await punctuationAudio(label, { ...options, cueCache: options.cueCache || new Map() }) : null;
   return { sentence, segments, buffer, cuts, cue, warning, boundaries };
 }
@@ -63,9 +65,10 @@ export function prepareReviewedAudio(recordings, delivery) {
   return {
     segments: selected.flatMap((recording) => recording.segments),
     clips: selected.flatMap(recordingClips),
-    // Whether this audio dictates commas (voice actors saying "comma" that
-    // students will hear): the assignment marks commas only then.
-    commasDictated: recordings.some((recording) => recording.commasDictated === true),
+    // The punctuation students hear dictated (grading.js classes): only voice
+    // actors' takes carry it; synthetic voices dictate none. Checked
+    // punctuation marks exactly this.
+    dictatedPunctuation: recordings.find((recording) => typeof recording.dictated === 'string')?.dictated ?? '',
   };
 }
 

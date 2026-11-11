@@ -64,7 +64,7 @@ function Waveform({ buffer, cuts, disabled, onMove, onPlay }) {
   </div>;
 }
 
-export default function AudioSplitStudio({ plan, lang, rate, mode, delivery = 'phrases', onCancel, onAccept, acceptLabel = 'Use audio and create assignment', segmentChangeNotice = '', initialRecordings = null, backLabel = 'Back', planChanged = false, policy = null, statusNote = '' }) {
+export default function AudioSplitStudio({ plan, lang, rate, mode, delivery = 'phrases', onCancel, onAccept, acceptLabel = 'Use audio and create assignment', segmentChangeNotice = '', initialRecordings = null, backLabel = 'Back', planChanged = false, statusNote = '' }) {
   const [recordings, setRecordings] = useState([]);
   const [index, setIndex] = useState(0);
   const [error, setError] = useState('');
@@ -109,7 +109,7 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, delivery = 'p
         for (const part of plan) {
           const result = await prepareSentenceRecording(part.sentence, {
             segments: part.segments, lang, rate, context, cueCache,
-            punctuation: policy ? policy.ends : mode === 'notebook', allowEstimated: true, signal: controller.signal,
+            allowEstimated: true, signal: controller.signal,
           });
           if (controller.signal.aborted) return;
           setRecordings((items) => [...items, fresh(result)]);
@@ -121,7 +121,7 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, delivery = 'p
       }
     })();
     return () => { controller.abort(); };
-  }, [plan, lang, rate, mode, attempt, initialRecordings, policy]);
+  }, [plan, lang, rate, mode, attempt, initialRecordings]);
 
   const previewBlob = preview?.blob;
   useEffect(() => {

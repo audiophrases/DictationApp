@@ -69,6 +69,26 @@ for (const w of Object.values(WORDS)) {
   if (w.periodParagraph) PARAGRAPH.add(w.periodParagraph);
 }
 export const noteKind = (word) => NOTE_KIND.get(word) || null;
+const COMMA_WORDS = new Set(Object.values(WORDS).map((w) => w.comma).filter(Boolean));
+
+/**
+ * The punctuation level a script was written at, read from its notes: 'all'
+ * with a comma note, 'inner' with a colon, semicolon or quote, 'ends' with a
+ * sentence end or new paragraph, 'none' without notes. Sessions made before
+ * the level existed read as what their actors were actually given.
+ */
+export function scriptLevel(lines) {
+  let rank = 0;
+  for (const line of lines || []) {
+    for (const m of String(line || '').matchAll(/\[([^[\]]{1,40})\]/gu)) {
+      if (COMMA_WORDS.has(m[1])) return 'all';
+      const kind = noteKind(m[1]);
+      if (kind === 'inner') rank = Math.max(rank, 2);
+      else if (kind) rank = Math.max(rank, 1);
+    }
+  }
+  return ['none', 'ends', 'inner'][rank];
+}
 
 /**
  * The words an actor says for an annotated line, in order: the sentence's
@@ -103,7 +123,12 @@ function straightQuoteOpens(text, i) {
 }
 
 // What each character says: { before: word } | { after: word } | null.
-function marks(sentence, w, lang, paragraph) {
+// Which notes a level says: 'none', 'ends', 'inner' (ends and inner marks), 'all' (commas too).
+const LEVEL_RANK = { none: 0, ends: 1, inner: 2, all: 3 };
+const KIND_RANK = { end: 1, endParagraph: 1, paragraph: 1, inner: 2 };
+export const levelSays = (level, kind) => (kind === 'comma' ? LEVEL_RANK[level] >= 3 : (LEVEL_RANK[level] ?? 3) >= (KIND_RANK[kind] ?? 0));
+
+function marks(sentence, w, lang, paragraph, level = 'all') {
   const de = String(lang || '').startsWith('de');
   const end = sentence.match(/(\.{3}|…|[.!?؟。！？])["'“”’»)\]\s]*$/u);
   const endIndex = end ? end.index + end[1].length - 1 : -1;
@@ -132,6 +157,11 @@ function marks(sentence, w, lang, paragraph) {
     else if (ch === '«' || ch === '„' || (ch === '“' && !de)) mark = { before: w.openQuote };
     else if (ch === '»' || ch === '”' || (ch === '“' && de)) mark = { after: w.closeQuote };
     else if (ch === '"') mark = straightQuoteOpens(sentence, i) ? { before: w.openQuote } : { after: w.closeQuote };
+    if (mark) {
+      const word = mark.before || mark.after;
+      const kind = word === w.comma ? 'comma' : noteKind(word);
+      if (!levelSays(level, kind)) mark = null;
+    }
     out.push(mark);
   }
   return out;
@@ -142,15 +172,18 @@ function runContinues(sentence, found, i) {
   const next = sentence[i + 1];
   if (next === undefined) return false;
   if (found[i + 1]?.after || CLOSERS.test(next) || /[.…?!？！؟]/u.test(next)) return true;
+  // A closing quote that isn't said (a level without quotes) still belongs to
+  // the run: "homesick?" [question mark], not "homesick? [question mark]".
+  if (/["”»“]/u.test(next) && !found[i + 1]?.before) return true;
   // French spacing: « Bonjour ! » keeps the space inside the run.
   return SPACE.test(next) && !!found[i + 2]?.after && /[?!:;»؟！？]/u.test(sentence[i + 2]);
 }
 
 /** The sentence with its punctuation to say aloud in [brackets]. */
-export function annotateSentence(sentence, lang = 'en-US', { paragraph = false } = {}) {
+export function annotateSentence(sentence, lang = 'en-US', { paragraph = false, level = 'all' } = {}) {
   const text = compact(sentence);
   const w = wordsFor(lang);
-  const found = marks(text, w, lang, paragraph);
+  const found = marks(text, w, lang, paragraph, level);
   let out = '';
   let pending = [];
   const flush = () => { out += pending.map((word) => ` [${word}]`).join(''); pending = []; };
@@ -162,7 +195,7 @@ export function annotateSentence(sentence, lang = 'en-US', { paragraph = false }
   }
   flush();
   const periodSaidIt = paragraph && w.periodParagraph && /\.["'“”’»)\]]*$/u.test(text) && !/\.{3}["'“”’»)\]]*$/u.test(text);
-  if (paragraph && !periodSaidIt) out += ` [${w.paragraph}]`;
+  if (paragraph && level !== 'none' && !periodSaidIt) out += ` [${w.paragraph}]`;
   return out;
 }
 

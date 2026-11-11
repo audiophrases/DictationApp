@@ -336,6 +336,19 @@ function assignmentMetadata(record) {
 // back days later and load the takes from the assignment itself. Null clears
 // it (the takes have been saved, or the teacher chose another voice).
 const SPOKEN_PUNCTUATION = ['auto', 'all', 'ends', 'none'];
+// What students heard dictated, as the classes grading.js knows ('ends',
+// 'inner', 'commas'), stored in that order, comma-separated ('' = nothing).
+// A level name ('none' | 'ends' | 'inner' | 'all') is accepted too. Undefined
+// for anything else.
+const DICTATED_CLASSES = ['ends', 'inner', 'commas'];
+const DICTATED_LEVELS = { none: '', ends: 'ends', inner: 'ends,inner', all: 'ends,inner,commas' };
+function dictatedFrom(value) {
+  if (typeof value !== 'string') return undefined;
+  if (Object.prototype.hasOwnProperty.call(DICTATED_LEVELS, value)) return DICTATED_LEVELS[value];
+  const parts = value.split(',').map((c) => c.trim()).filter(Boolean);
+  if (parts.some((c) => !DICTATED_CLASSES.includes(c))) return undefined;
+  return DICTATED_CLASSES.filter((c) => parts.includes(c)).join(',');
+}
 const spokenPunctuationChoice = (value) => (SPOKEN_PUNCTUATION.includes(value) ? value : 'auto');
 
 function recordingFrom(value) {
@@ -522,10 +535,11 @@ async function createAssignment(env, body) {
     // Which spoken punctuation students hear: 'auto' follows the rule in the
     // app (src/lib/punctuationPolicy.js); the teacher may fix it instead.
     spokenPunctuation: spokenPunctuationChoice(body.spokenPunctuation),
-    // Commas are marked only when the recording dictates them (voice actors
-    // saying "comma"); TTS and studio voices never do. Set by the teacher's
-    // browser from where the audio came, false again when the text changes.
-    commasDictated: body.commasDictated === true,
+    // Which punctuation the recording dictates, so that checked punctuation
+    // marks only what students could hear: 'none' (TTS, studio voices),
+    // 'ends', 'inner' or 'all' (commas too). The teacher chooses it for voice
+    // actors; new text means new audio, so it goes back to 'none'.
+    dictatedPunctuation: dictatedFrom(body.dictatedPunctuation) ?? '',
     sentences,
     sentenceCount: sentences.length,
   };
@@ -727,7 +741,11 @@ async function updateSettings(env, body) {
   if (has('practiceAfter')) record.practiceAfter = body.practiceAfter === true;
   // Recorded speed: sent after the teacher re-records the audio at a new one.
   if (has('rate')) record.settings.rate = Math.min(1.5, Math.max(0.5, Number(body.rate) || 1));
-  if (has('commasDictated')) record.commasDictated = body.commasDictated === true;
+  if (has('dictatedPunctuation')) {
+    const dictated = dictatedFrom(body.dictatedPunctuation);
+    if (dictated === undefined) return fail('Unknown dictated punctuation.');
+    record.dictatedPunctuation = dictated;
+  }
   if (has('spokenPunctuation')) {
     if (!SPOKEN_PUNCTUATION.includes(body.spokenPunctuation)) return fail('Unknown spoken-punctuation choice.');
     record.spokenPunctuation = body.spokenPunctuation;
@@ -792,7 +810,7 @@ async function updateContent(env, body) {
 
   record.sentences = content.sentences;
   record.sentenceCount = content.sentences.length;
-  record.commasDictated = false; // new audio is coming; the browser says if it dictates commas
+  record.dictatedPunctuation = ''; // new audio is coming; the browser says what it dictates
   if (record.mode === 'notebook') {
     record.correctionText = sanitizeText(body.text, MAX_PASSAGE_CHARS).trim();
     record.correctionsReleased = false;
@@ -854,7 +872,7 @@ function markSentence(record, index, text) {
   return gradeSentence(record.sentences[index], text, {
     ...DEFAULT_GRADING_OPTIONS,
     ...record.grading,
-    ignoreCommas: !record.commasDictated,
+    dictated: record.dictatedPunctuation || '',
   });
 }
 
@@ -862,7 +880,7 @@ function gradeResults(record, attempt) {
   return gradeDictation(
     record.sentences,
     answersArray(attempt, record.sentenceCount),
-    { ...DEFAULT_GRADING_OPTIONS, ...record.grading, ignoreCommas: !record.commasDictated }
+    { ...DEFAULT_GRADING_OPTIONS, ...record.grading, dictated: record.dictatedPunctuation || '' }
   );
 }
 

@@ -40,8 +40,10 @@ const oneLine = (text) => String(text || '').replace(/\s+/gu, ' ').trim();
 const cleanDirection = (text) => oneLine(text).replace(/[():]/gu, ' ').replace(/\s+/gu, ' ').trim().slice(0, 200);
 
 // Distinct punctuation cues the sentences need, spoken as their own lines.
-export function cueLines(plan, lang, mode) {
-  if (mode !== 'notebook') return [];
+// `ends`: whether students hear the sentence-end punctuation (punctuationPolicy.js);
+// the old mode name is still accepted.
+export function cueLines(plan, lang, ends) {
+  if (ends !== true && ends !== 'notebook') return [];
   return [...new Set(plan.map((part) => sentenceEndCue(part.sentence, lang)).filter(Boolean))].map((label) => `${label}.`);
 }
 

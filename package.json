@@ -23,7 +23,7 @@
     "test:audio-cache": "node --test src/lib/assignmentAudioCache.test.mjs",
     "test:dictation": "node server/dictation.test.mjs",
     "test:sentences": "node src/lib/sentences.test.mjs",
-    "test:recording-sessions": "node --test src/lib/pinplaySessions.test.mjs src/lib/spokenPunctuation.test.mjs",
+    "test:recording-sessions": "node --test src/lib/pinplaySessions.test.mjs src/lib/spokenPunctuation.test.mjs src/lib/spokenPunctuationCut.test.mjs",
     "test:audio-splits": "node --test src/lib/audioSplits.test.mjs src/lib/reuseAudio.test.mjs src/lib/wordAlignment.test.mjs",
     "test:notebook": "node --test src/lib/notebook.test.mjs",
     "test:listening-studio": "node --test src/lib/listeningStudio.test.mjs server/listeningStudio.test.mjs",

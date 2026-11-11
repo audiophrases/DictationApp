@@ -4,6 +4,7 @@ import { SPEEDS, LANGUAGES, REPLAY_LIMITS, FEEDBACK_MODES } from '../../lib/opti
 import { DEFAULT_GRADING_OPTIONS } from '../../lib/grading';
 import { createAssignment, publishAssignment, updateAssignmentContent, updateAssignmentSettings } from '../../lib/assignmentApi';
 import { sameSegmentPlan } from '../../lib/notebookShared';
+import { SPOKEN_PUNCTUATION_CHOICES, spokenPunctuationPolicy, describeSpokenPunctuation } from '../../lib/punctuationPolicy';
 import { recordSentences } from '../../lib/buildAssignment';
 import { studentLink } from '../../lib/appLinks';
 import AudioSplitStudio from '../../components/DictationAudioWorkflow';
@@ -37,6 +38,9 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
   // Starts from the app-wide defaults so a new assignment marks the way free
   // practice does unless the teacher says otherwise — one place to change, not two.
   const [grading, setGrading] = useState({ ...DEFAULT_GRADING_OPTIONS });
+  const [spokenPunctuation, setSpokenPunctuation] = useState('auto');
+  // What students hear of the spoken punctuation (punctuationPolicy.js).
+  const policy = useMemo(() => spokenPunctuationPolicy({ mode, delivery, grading, spokenPunctuation }), [mode, delivery, grading, spokenPunctuation]);
 
   const preparedAudio = useRef(null);
   const [phase, setPhase] = useState('form'); // form | studio | recording | done
@@ -70,7 +74,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
 
   const fields = () => ({
     text: passage, mode, delivery, segments, title, className, dueAt: endOfDay(due),
-    attemptsLimit, maxListens, feedbackMode, lang, rate, allowSlowdown, grading,
+    attemptsLimit, maxListens, feedbackMode, lang, rate, allowSlowdown, grading, spokenPunctuation,
   });
 
   // The draft behind a recording session: created before the session, so
@@ -96,6 +100,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
       mode,
       delivery,
       text: passage,
+      cues: policy.ends,
       prepared: preparedAudio.current,
       onSettled: (_index, failure) => {
         setRecorded((n) => n + 1);
@@ -156,7 +161,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
     );
   }
 
-  if (phase === 'studio') return <AudioSplitStudio onSessionPassage={setPassage} passage={passage} title={title} requireServer={requireServer} plan={plan} lang={lang} rate={rate} mode={mode} delivery={delivery}
+  if (phase === 'studio') return <AudioSplitStudio onSessionPassage={setPassage} passage={passage} title={title} requireServer={requireServer} plan={plan} lang={lang} rate={rate} mode={mode} delivery={delivery} policy={policy}
     createDraft={createDraft} onSessionCreated={rememberSession} draftCode={draftCode} onFinishLater={onFinished}
     onCancel={() => setPhase('form')}
     onAccept={async (prepared) => { preparedAudio.current = prepared; await handleCreate(); }} />;
@@ -356,6 +361,16 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
               it to re-mark themselves.
             </p>
           </div>}
+
+          <div>
+            <label className="field-label" htmlFor="assignment-spoken-punctuation">Spoken punctuation</label>
+            <select id="assignment-spoken-punctuation" value={spokenPunctuation} onChange={(e) => setSpokenPunctuation(e.target.value)} style={{ width: '100%' }}>
+              {SPOKEN_PUNCTUATION_CHOICES.map((c) => <option key={c.value} value={c.value}>{c.name}</option>)}
+            </select>
+            <p className="field-hint">
+              Students hear punctuation they have to produce: sentence ends in notebooks and segmented dictations, colons, semicolons and quotes when Punctuation is marked, new paragraphs in notebooks. With these settings: {describeSpokenPunctuation(policy)}. Voice actors’ spoken punctuation is cut out where not played; TTS and studio voices add the sentence-end cue when it is.
+            </p>
+          </div>
 
           <div>
             <label className="field-label">Passage</label>

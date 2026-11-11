@@ -1142,6 +1142,13 @@ const toTyping = await teacher('assignments/update-settings', { code: waitingCod
 check('and back to typed, with marking rules', toTyping.payload.record.mode === 'typing'
   && toTyping.payload.record.feedbackMode === 'end' && toTyping.payload.record.grading && toTyping.payload.cleared === 1);
 check('an unknown mode is refused', (await teacher('assignments/update-settings', { code: waitingCode, mode: 'oral' })).status === 400);
+check('spoken punctuation defaults to the rule', (await teacher('assignments/get', { code: waitingCode })).payload.record.spokenPunctuation === 'auto');
+check('the teacher can fix the spoken punctuation', (await teacher('assignments/update-settings', { code: waitingCode, spokenPunctuation: 'ends' })).payload.record.spokenPunctuation === 'ends'
+  && (await teacher('assignments/update-settings', { code: waitingCode, spokenPunctuation: 'loud' })).status === 400);
+const fixedAtCreate = await teacher('assignments/create', { text: 'One. Two.', title: 'Fixed', spokenPunctuation: 'none' });
+check('and choose it at creation; nonsense falls back to the rule', fixedAtCreate.payload.record.spokenPunctuation === 'none'
+  && (await teacher('assignments/create', { text: 'One. Two.', title: 'Odd', spokenPunctuation: 7 })).payload.record.spokenPunctuation === 'auto');
+for (const a of (await teacher('assignments/list', {})).payload.assignments) if (['Fixed', 'Odd'].includes(a.title)) await call('/api/teacher/assignments/delete', { method: 'POST', body: { password: PASSWORD, code: a.code } });
 await call('/api/teacher/assignments/delete', { method: 'POST', body: { password: PASSWORD, code: waitingCode } });
 
 await call('/api/teacher/assignments/delete', {

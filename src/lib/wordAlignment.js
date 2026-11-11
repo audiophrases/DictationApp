@@ -78,8 +78,18 @@ const MIN_WORD = 0.02; // seconds: a timing never collapses to nothing
  * proportion to their length. Null when fewer than `minMatched` of the words
  * were recognised, or the heard timings run backwards.
  */
-export function alignedBoundaries(sentence, heard, duration, { minMatched = 0.6 } = {}) {
+export function alignedBoundaries(sentence, heard, duration, options = {}) {
   const words = wordsOf(sentence);
+  const timing = alignedTimings(words, heard, duration, options);
+  return timing && words.map((text, k) => ({ text, start: timing[k].start, end: timing[k].end }));
+}
+
+/**
+ * Per word of `words`: { start, end, matched } (matched: the recogniser
+ * heard this word; otherwise its timing is interpolated). Null when fewer
+ * than `minMatched` of the words were recognised or timings run backwards.
+ */
+export function alignedTimings(words, heard, duration, { minMatched = 0.6 } = {}) {
   const said = (heard || []).filter((w) => normalized(w.text) && Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start);
   if (!words.length || !said.length || !(duration > 0)) return null;
   const matched = alignWords(words, said.map((w) => w.text));
@@ -93,7 +103,7 @@ export function alignedBoundaries(sentence, heard, duration, { minMatched = 0.6 
     const start = Math.max(0, Math.min(duration, w.start));
     const end = Math.max(start + MIN_WORD, Math.min(duration, w.end));
     if (last >= 0 && start < timing[last].start) return null; // timings must run forwards
-    timing[i] = { start, end };
+    timing[i] = { start, end, matched: true };
     last = i;
   }
   // Unmatched runs: share the gap between the neighbours' timings by length.
@@ -110,7 +120,7 @@ export function alignedBoundaries(sentence, heard, duration, { minMatched = 0.6 
     let at = Math.min(lo, duration - span);
     for (let k = i; k < j; k++) {
       const width = span * weights[k - i] / total;
-      timing[k] = { start: at, end: at + width };
+      timing[k] = { start: at, end: at + width, matched: false };
       at += width;
     }
     i = j;
@@ -121,7 +131,7 @@ export function alignedBoundaries(sentence, heard, duration, { minMatched = 0.6 
     if (timing[k].end < timing[k].start + MIN_WORD) timing[k].end = timing[k].start + MIN_WORD;
   }
   if (timing.at(-1).end > duration + 0.1) return null;
-  return words.map((text, k) => ({ text, start: timing[k].start, end: timing[k].end }));
+  return timing;
 }
 
 export const alignmentScore = (sentence, heard) => {

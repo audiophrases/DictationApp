@@ -90,8 +90,10 @@ export async function transcribeWords(buffer, lang, { transcriber } = {}) {
  * Word boundaries for each take, or null where the sentence was not
  * recognised well enough. `onProgress(text)` reports the download and each
  * sentence. Never throws for one bad take: the caller falls back per sentence.
+ * With `withHeard`, each entry is { boundaries, heard } instead, for callers
+ * that also need the heard words (cutting spoken punctuation).
  */
-export async function alignTakes(takes, lang, { onProgress, signal } = {}) {
+export async function alignTakes(takes, lang, { onProgress, signal, withHeard = false } = {}) {
   const say = (text) => onProgress?.(text);
   let transcriber;
   if (typeof globalThis.__dictationTranscribe !== 'function') {
@@ -104,9 +106,10 @@ export async function alignTakes(takes, lang, { onProgress, signal } = {}) {
     const { sentence, buffer } = takes[i];
     try {
       const heard = await transcribeWords(buffer, lang, { transcriber });
-      found.push(alignedBoundaries(sentence, heard, buffer.duration));
+      const boundaries = alignedBoundaries(sentence, heard, buffer.duration);
+      found.push(withHeard ? { boundaries, heard } : boundaries);
     } catch {
-      found.push(null);
+      found.push(withHeard ? { boundaries: null, heard: null } : null);
     }
   }
   return found;

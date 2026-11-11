@@ -27,6 +27,8 @@ test('only languages Qwen3 speaks, in the app’s dialects', () => {
 
 test('notebook dictations get each punctuation cue once, as a line in the same voice', () => {
   assert.deepEqual(cueLines(plan, 'en-US', 'typing'), []);
+  assert.deepEqual(cueLines(plan, 'en-US', false), []);
+  assert.deepEqual(cueLines(plan, 'en-US', true), ['Period.', 'Question mark.']);
   assert.deepEqual(cueLines([...plan, { sentence: 'Yes.' }], 'en-US', 'notebook'), ['Period.', 'Question mark.']);
   assert.deepEqual(cueLines(plan, 'fr-FR', 'notebook'), ['Point.', 'Point d’interrogation.']);
 });

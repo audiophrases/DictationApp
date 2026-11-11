@@ -64,7 +64,7 @@ function Waveform({ buffer, cuts, disabled, onMove, onPlay }) {
   </div>;
 }
 
-export default function AudioSplitStudio({ plan, lang, rate, mode, delivery = 'phrases', onCancel, onAccept, acceptLabel = 'Use audio and create assignment', segmentChangeNotice = '', initialRecordings = null, backLabel = 'Back', planChanged = false }) {
+export default function AudioSplitStudio({ plan, lang, rate, mode, delivery = 'phrases', onCancel, onAccept, acceptLabel = 'Use audio and create assignment', segmentChangeNotice = '', initialRecordings = null, backLabel = 'Back', planChanged = false, policy = null, statusNote = '' }) {
   const [recordings, setRecordings] = useState([]);
   const [index, setIndex] = useState(0);
   const [error, setError] = useState('');
@@ -109,7 +109,7 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, delivery = 'p
         for (const part of plan) {
           const result = await prepareSentenceRecording(part.sentence, {
             segments: part.segments, lang, rate, context, cueCache,
-            punctuation: mode === 'notebook', allowEstimated: true, signal: controller.signal,
+            punctuation: policy ? policy.ends : mode === 'notebook', allowEstimated: true, signal: controller.signal,
           });
           if (controller.signal.aborted) return;
           setRecordings((items) => [...items, fresh(result)]);
@@ -121,7 +121,7 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, delivery = 'p
       }
     })();
     return () => { controller.abort(); };
-  }, [plan, lang, rate, mode, attempt, initialRecordings]);
+  }, [plan, lang, rate, mode, attempt, initialRecordings, policy]);
 
   const previewBlob = preview?.blob;
   useEffect(() => {
@@ -185,6 +185,7 @@ export default function AudioSplitStudio({ plan, lang, rate, mode, delivery = 'p
     <p role="status">{loading ? `Generating full sentences: ${recordings.length} of ${plan.length}` : `${recordings.length} of ${plan.length} sentences ready`}
       {!loading && timed > 0 && timed < recordings.length && ` · word timings found for ${timed}`}
       {!loading && timed > 0 && timed === recordings.length && recordings.some((r) => r.source) && ' · word timings found'}
+      {!loading && statusNote && ` · ${statusNote}`}
       {!loading && recordings.length > 0 && ` · ${phraseCount} phrase${phraseCount === 1 ? '' : 's'}${phraseCount !== originalCount ? ` (was ${originalCount})` : ''}`}
       {unchecked > 0 && ` · ${unchecked} to check by ear`}</p>
     {error && <p className="fetch-error" role="alert">{error}</p>}

@@ -6,6 +6,9 @@ import {
 } from '../lib/pinplaySessions';
 import { prepareHumanSentenceRecording } from '../lib/notebookAudio';
 import { alignTakes } from '../lib/browserWhisper';
+import { applyPunctuationPolicy } from '../lib/spokenPunctuationCut';
+import { hasSpokenPunctuation } from '../lib/spokenPunctuation';
+import { describeSpokenPunctuation } from '../lib/punctuationPolicy';
 import WordTimingsOption from './WordTimingsOption';
 import { wavClip } from '../lib/notebookWav';
 
@@ -18,7 +21,16 @@ import { wavClip } from '../lib/notebookWav';
  *   sessionId               → a session remembered earlier: offered to load first
  *   onFinishLater()         → leaves while the actors record
  */
-export default function HumanRecordingSession({ plan, passage, title, lang, rate, mode, delivery, onCancel, onAccept, acceptLabel, segmentChangeNotice, planChanged, requireServer, onSessionPassage,
+// What was done with the actors' spoken punctuation, for the studio's status line.
+function punctuationNote(said, policy, notes) {
+  if (!said) return '';
+  if (notes.unknown && !notes.cut && !notes.kept) return 'spoken punctuation kept as recorded (no word timings)';
+  const parts = [describeSpokenPunctuation(policy || { ends: true, inner: true, paragraph: true })];
+  if (notes.unsure || notes.unknown) parts.push(`${notes.unsure + notes.unknown} not found, kept`);
+  return parts.join(', ');
+}
+
+export default function HumanRecordingSession({ plan, passage, title, lang, rate, mode, delivery, policy = null, onCancel, onAccept, acceptLabel, segmentChangeNotice, planChanged, requireServer, onSessionPassage,
   createDraft, onSessionCreated, draftCode = '', sessionId = '', onFinishLater }) {
   const script = useMemo(() => sessionScript(plan, { lang, passage }), [plan, lang, passage]);
   const [password, setPassword] = useState('');
@@ -105,9 +117,10 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
     validateSession(next, plan); setSession(next);
     setPreview((current) => current && ({ ...current, edited: false }));
   }
-  // Actors who said the punctuation need no TTS cue after them.
-  const addsCues = (current) => punctuation && !sessionSaysPunctuation(current);
-  const studioKey = (current) => `${sessionTakesKey(current)}|${addsCues(current)}|${timings}`;
+  // Actors who said the punctuation need no TTS cue after them; for older
+  // sessions without notes, the cue follows the policy (or the tick box).
+  const addsCues = (current) => !sessionSaysPunctuation(current) && (policy ? policy.ends : punctuation);
+  const studioKey = (current) => `${sessionTakesKey(current)}|${addsCues(current)}|${timings}|${JSON.stringify(policy)}`;
   const kept = !!(studio && session && studio.key === studioKey(session));
 
   // Straight from a loaded session to the studio once every sentence has a
@@ -136,24 +149,35 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
       }
       // Word timings from speech recognition in this browser, so the cuts
       // fall between the right words; a sentence it can't follow keeps
-      // its pause-based cuts.
-      const found = timings ? await alignTakes(takes, lang, { onProgress: setMessage, signal }) : [];
+      // its pause-based cuts. Where the actors said the punctuation, the
+      // same words decide what students hear of it (punctuationPolicy.js).
+      const said = sessionSaysPunctuation(latest);
+      const found = timings ? await alignTakes(takes, lang, { onProgress: setMessage, signal, withHeard: true }) : [];
       if (signal.aborted) return;
+      const notes = { kept: 0, cut: 0, unsure: 0, unknown: 0 };
       for (let i = 0; i < plan.length; i++) {
         setMessage(`Preparing sentence ${i + 1} of ${plan.length}…`);
-        results.push(await prepareHumanSentenceRecording(plan[i], takes[i].buffer, {
-          lang, rate, context, cueCache, punctuation: addCues, signal, boundaries: found[i] || null,
+        let { buffer } = takes[i];
+        let boundaries = found[i]?.boundaries || null;
+        if (said && hasSpokenPunctuation(latest.lines[i].text)) {
+          const applied = found[i]?.heard ? applyPunctuationPolicy(latest.lines[i].text, found[i].heard, buffer, policy, context) : null;
+          if (applied) { ({ buffer, boundaries } = applied); notes.kept += applied.notes.kept; notes.cut += applied.notes.cut; notes.unsure += applied.notes.unsure; }
+          else notes.unknown += 1;
+        }
+        results.push(await prepareHumanSentenceRecording(plan[i], buffer, {
+          lang, rate, context, cueCache, punctuation: addCues, signal, boundaries,
         }));
         if (signal.aborted) return;
       }
       setMessage('');
-      setStudio({ key, recordings: results });
+      setStudio({ key, recordings: results, note: punctuationNote(said, policy, notes) });
       setInStudio(true);
     } finally { await context.close(); }
   }
 
   if (inStudio && studio) return <AudioSplitStudio plan={plan} lang={lang} rate={rate} mode={mode} delivery={delivery}
     initialRecordings={studio.recordings} onAccept={onAccept} acceptLabel={acceptLabel} segmentChangeNotice={segmentChangeNotice} planChanged={planChanged}
+    policy={policy} statusNote={studio.note || ''}
     backLabel="Back to the recording session"
     onCancel={(recordings) => { if (recordings) setStudio((current) => ({ ...current, recordings })); setInStudio(false); }} />;
 
@@ -181,7 +205,7 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
         <p className="field-hint">Your split changes are kept while the takes stay the same.</p>
       </> : progress.ready ? <>
         {options && <WordTimingsOption checked={timings} disabled={busy} onChange={setTimings} />}
-        {options && mode === 'notebook' && !sessionSaysPunctuation(session) && <label>
+        {options && !policy && mode === 'notebook' && !sessionSaysPunctuation(session) && <label>
           <input type="checkbox" checked={punctuation} disabled={busy} onChange={(e) => setPunctuation(e.target.checked)} /> Add TTS punctuation cues after the human sentences
         </label>}
         <div className="edit-actions">

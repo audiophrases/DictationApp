@@ -39,7 +39,7 @@ async function synthesize(text, lang, rate) {
  *
  * Returns the indexes that did not make it.
  */
-export async function recordSentences(code, sentences, { lang, rate, only, onSettled, mode, text, delivery: selectedDelivery, prepared }) {
+export async function recordSentences(code, sentences, { lang, rate, only, onSettled, mode, text, delivery: selectedDelivery, prepared, cues = mode === 'notebook' }) {
   const delivery = deliveryFor({ mode, delivery: selectedDelivery });
   if (prepared) {
     if (!validatedNotebookSegments(text, prepared.segments)) throw new Error('Reviewed phrases must preserve the original passage.');
@@ -62,7 +62,7 @@ export async function recordSentences(code, sentences, { lang, rate, only, onSet
         if (!indexes.length) continue;
         let clips;
         try {
-          clips = await prepareNotebookSentence(part.sentence, { lang, rate, context, cueCache, delivery, punctuation: mode === 'notebook' });
+          clips = await prepareNotebookSentence(part.sentence, { lang, rate, context, cueCache, delivery, punctuation: cues });
         } catch (error) {
           for (const index of indexes) { failed.push(index); onSettled?.(index, error); }
           continue;
@@ -104,7 +104,7 @@ export async function recordSentences(code, sentences, { lang, rate, only, onSet
  * segmentGroups). Same contract as recordSentences: returns the indexes that
  * did not make it.
  */
-export async function rerecordSegments(code, segments, { lang, rate, mode, only, onSettled }) {
+export async function rerecordSegments(code, segments, { lang, rate, mode, only, onSettled, cues = mode === 'notebook' }) {
   const wanted = (only || segments.map((_, i) => i)).slice().sort((a, b) => a - b);
   const failed = [];
   const groups = segmentGroups(segments);
@@ -118,7 +118,7 @@ export async function rerecordSegments(code, segments, { lang, rate, mode, only,
       try {
         clips = await prepareNotebookSentence(group.sentence, {
           segments: segments.slice(group.start, group.start + group.count),
-          lang, rate, context, cueCache, punctuation: mode === 'notebook',
+          lang, rate, context, cueCache, punctuation: cues,
         });
       } catch (error) {
         for (const index of indexes) { failed.push(index); onSettled?.(index, error); }

@@ -13,8 +13,11 @@ import {
 const STUDIO_WARNING = 'Listening Studio voice: phrase cuts were placed at pauses. Listen and adjust them by ear.';
 const CHECKS = { ok: '✓ Words match', minor: 'Check by ear', differs: '⚠ Words differ' };
 
-export default function ListeningStudioVoices({ plan, title, lang, mode, onCancel, ...studioProps }) {
-  const cues = useMemo(() => cueLines(plan, lang, mode), [plan, lang, mode]);
+export default function ListeningStudioVoices({ plan, title, lang, mode, policy = null, onCancel, ...studioProps }) {
+  // Sentence-end cues in the same voice, when students should hear them
+  // (punctuationPolicy.js); without a policy, as a notebook always did.
+  const cueEnds = policy ? policy.ends : mode === 'notebook';
+  const cues = useMemo(() => cueLines(plan, lang, cueEnds), [plan, lang, cueEnds]);
   const expected = useMemo(() => [...plan.map((part) => part.sentence), ...cues], [plan, cues]);
   const key = useMemo(() => planKey(plan, lang, mode), [plan, lang, mode]);
   const [id, setId] = useState(() => rememberedRecording(key));
@@ -219,7 +222,7 @@ export default function ListeningStudioVoices({ plan, title, lang, mode, onCance
         buffers.push(await context.decodeAudioData(bytes));
       }
       const cueBuffer = (sentence) => {
-        const index = cues.indexOf(cueLines([{ sentence }], lang, mode)[0]);
+        const index = cues.indexOf(cueLines([{ sentence }], lang, cueEnds)[0]);
         return index < 0 ? null : buffers[plan.length + index];
       };
       // Word timings from speech recognition in this browser: exact cuts, and

@@ -142,6 +142,26 @@ the list. The list shows it as **waiting for actors**; opening it offers
 publish** uploads the audio as the draft's **Read in** says, forgets the
 session and publishes.
 
+**Which spoken punctuation students hear** is decided by one rule
+(`src/lib/punctuationPolicy.js`): play it when the student has to produce it.
+Sentence ends (period, question mark…) in notebooks and in segmented
+dictations (the only way a segment is known to close the sentence), never in
+typed full-sentence ones; inner marks (colon, semicolon, quotes) in notebooks
+or when Punctuation is marked (Check); new paragraphs in notebooks only.
+Commas are never dictated. The teacher can override it per assignment
+(**Spoken punctuation**: by the rule / all / sentence ends only / none, in
+New assignment and Edit > Settings; worker field `spokenPunctuation`). For
+voice actors the notes are cut out of the take (`src/lib/spokenPunctuationCut.js`):
+the recogniser's words are aligned to the *spoken script* (sentence words plus
+the bracket notes, `spokenScript`), a note is removed only when every word of
+it was actually heard, an inner cut leaves a 0.15 s gap so the rhythm
+survives, and the sentence words come back as boundaries in the new time. TTS
+and Listening Studio voices never say inner marks; the rule only decides
+whether their sentence-end cue is attached (`cues` in buildAssignment,
+`cueLines`). The studio's status line reports what was done ("spoken
+punctuation: sentence ends only", "2 not found, kept"). A changed override
+applies the next time recordings are brought into the studio.
+
 Sessions persist in PinPlay and can be reopened later with **Load existing
 PinPlay sessions**. With an empty passage, selecting a session imports its text;
 with a passage already entered, it must match sentence for sentence. Existing

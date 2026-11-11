@@ -335,6 +335,9 @@ function assignmentMetadata(record) {
 // recording session the actors are filling. Stored so the teacher can come
 // back days later and load the takes from the assignment itself. Null clears
 // it (the takes have been saved, or the teacher chose another voice).
+const SPOKEN_PUNCTUATION = ['auto', 'all', 'ends', 'none'];
+const spokenPunctuationChoice = (value) => (SPOKEN_PUNCTUATION.includes(value) ? value : 'auto');
+
 function recordingFrom(value) {
   if (value === null) return null;
   const sessionId = String(value?.sessionId || '').trim();
@@ -516,6 +519,9 @@ async function createAssignment(env, body) {
           },
     source: body.source && typeof body.source === 'object' ? body.source : null,
     recording: app === 'ipa' ? null : recordingFrom(body.recording) || null,
+    // Which spoken punctuation students hear: 'auto' follows the rule in the
+    // app (src/lib/punctuationPolicy.js); the teacher may fix it instead.
+    spokenPunctuation: spokenPunctuationChoice(body.spokenPunctuation),
     sentences,
     sentenceCount: sentences.length,
   };
@@ -717,6 +723,10 @@ async function updateSettings(env, body) {
   if (has('practiceAfter')) record.practiceAfter = body.practiceAfter === true;
   // Recorded speed: sent after the teacher re-records the audio at a new one.
   if (has('rate')) record.settings.rate = Math.min(1.5, Math.max(0.5, Number(body.rate) || 1));
+  if (has('spokenPunctuation')) {
+    if (!SPOKEN_PUNCTUATION.includes(body.spokenPunctuation)) return fail('Unknown spoken-punctuation choice.');
+    record.spokenPunctuation = body.spokenPunctuation;
+  }
   if (has('recording')) {
     const recording = recordingFrom(body.recording);
     if (recording === undefined) return fail('That is not a recording session.');

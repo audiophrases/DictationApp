@@ -14,6 +14,9 @@ import { deliveryFor, dictationUnit } from '../../lib/delivery';
 import AudioSplitStudio from '../../components/DictationAudioWorkflow';
 import { segmentGroups, sameSegmentPlan } from '../../lib/notebookShared';
 import { regroupRecordings } from '../../lib/reuseAudio';
+import { SPOKEN_PUNCTUATION_CHOICES, spokenPunctuationPolicy } from '../../lib/punctuationPolicy';
+
+const SPOKEN_PUNCTUATION_HINT = 'By the rule, students hear punctuation they have to produce: sentence ends in notebooks and segmented dictations (how else would a segment be known to close the sentence?), colons, semicolons and quotes when Punctuation is marked, new paragraphs in notebooks only. Voice actors’ spoken punctuation is cut out where not played; TTS and studio voices add the sentence-end cue when it is.';
 import MarkingRules from '../../components/MarkingRules';
 
 const toDateInput = (ms) => {
@@ -84,6 +87,7 @@ function SettingsSection({ code, data, onSaved }) {
     allowSlowdown: !!record.settings?.allowSlowdown,
     practiceAfter: !!record.practiceAfter,
     grading: record.grading,
+    spokenPunctuation: record.spokenPunctuation || 'auto',
   }));
   const [status, setStatus] = useState({ saving: false, saved: false, error: '' });
   const set = (key, value) => { setForm((f) => ({ ...f, [key]: value })); setStatus((s) => ({ ...s, saved: false })); };
@@ -105,6 +109,7 @@ function SettingsSection({ code, data, onSaved }) {
         maxListens: form.maxListens,
         allowSlowdown: form.allowSlowdown,
         practiceAfter: form.practiceAfter,
+        spokenPunctuation: form.spokenPunctuation,
         ...(notebook ? {} : { feedbackMode: form.feedbackMode }),
         ...(notebook || handedIn ? {} : { grading: form.grading }),
       });
@@ -158,6 +163,13 @@ function SettingsSection({ code, data, onSaved }) {
         <input type="checkbox" checked={form.allowSlowdown} onChange={(e) => set('allowSlowdown', e.target.checked)} />
         Allow students to slow playback
       </label>
+      <div>
+        <label className="field-label" htmlFor="edit-spoken-punctuation">Spoken punctuation</label>
+        <select id="edit-spoken-punctuation" value={form.spokenPunctuation} onChange={(e) => set('spokenPunctuation', e.target.value)} style={{ width: '100%' }}>
+          {SPOKEN_PUNCTUATION_CHOICES.map((c) => <option key={c.value} value={c.value}>{c.name}</option>)}
+        </select>
+        <p className="field-hint">{SPOKEN_PUNCTUATION_HINT} Applies the next time recordings are brought into the splitting studio.</p>
+      </div>
       <label className="edit-check">
         <input type="checkbox" checked={form.practiceAfter} disabled={!notebook && form.feedbackMode === 'none'}
           onChange={(e) => set('practiceAfter', e.target.checked)} />
@@ -199,6 +211,8 @@ function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
   // phrases and full sentences here, keeping the recordings.
   const currentDelivery = deliveryFor(record);
   const [targetDelivery, setTargetDelivery] = useState(currentDelivery);
+  // What students hear of the spoken punctuation, for the reading chosen here.
+  const policy = useMemo(() => spokenPunctuationPolicy({ ...record, delivery: targetDelivery }), [record, targetDelivery]);
   const studioPlan = useMemo(() => targetDelivery === currentDelivery
     ? groups.map((group) => ({ sentence: group.sentence, segments: sentences.slice(group.start, group.start + group.count) }))
     : notebookPlan(data.text, record.settings.lang, targetDelivery),
@@ -259,7 +273,7 @@ function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
     requireServer?.();
     try {
       const failed = await rerecordSegments(code, sentences, {
-        lang: record.settings.lang, rate, mode: record.mode, only,
+        lang: record.settings.lang, rate, mode: record.mode, only, cues: policy.ends,
         onSettled: (_i, failure) => { count += 1; setProgress(`${count} of ${total}`); if (failure) reason = failure.message; },
       });
       if (failed.length) {
@@ -283,7 +297,7 @@ function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
     }
   }
 
-  if (studio) return <AudioSplitStudio title={record.title} passage={data.text} requireServer={requireServer} plan={studioPlan} lang={record.settings.lang} rate={rate} mode={record.mode} delivery={targetDelivery}
+  if (studio) return <AudioSplitStudio title={record.title} passage={data.text} requireServer={requireServer} plan={studioPlan} lang={record.settings.lang} rate={rate} mode={record.mode} delivery={targetDelivery} policy={policy}
     segmentChangeNotice={draft ? '' : 'I understand that moving words changes the expected answers and resets student attempts, scores and released corrections for this assignment.'}
     acceptLabel={draft ? 'Save recordings and publish' : 'Save reviewed recordings'} onCancel={() => { setStudio(false); savedStudioSegments.current = null; onSaved(); }}
     initialSource={draft && sessionId ? 'human' : ''} sessionId={sessionId} reuse={reuse} planChanged={targetDelivery !== currentDelivery}
@@ -385,7 +399,7 @@ function TextSection({ code, data, onSaved, requireServer }) {
     setError('');
     requireServer?.();
     const stragglers = await recordSentences(code, newList, {
-      lang, rate, only, mode: record.mode, delivery, text,
+      lang, rate, only, mode: record.mode, delivery, text, cues: spokenPunctuationPolicy(record).ends,
       onSettled: (_i, failure) => { setRecorded((n) => n + 1); if (failure) setError(failure.message); },
     });
     setFailed(stragglers);

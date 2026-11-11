@@ -56,10 +56,36 @@ const wordsFor = (lang) => WORDS[String(lang || '').split('-')[0]] || WORDS.en;
 const BEFORE = new Set();
 const AFTER = new Set();
 const PARAGRAPH = new Set();
+// What each note is, for deciding whether students hear it (punctuationPolicy.js):
+// 'end' closes the sentence, 'inner' sits inside it, 'paragraph' starts a new
+// one, 'endParagraph' does both in one phrase (Catalan "punt i a part").
+const KINDS = { period: 'end', question: 'end', exclamation: 'end', ellipsis: 'end', closeQuestion: 'end', closeExclamation: 'end',
+  colon: 'inner', semicolon: 'inner', openQuote: 'inner', closeQuote: 'inner', openQuestion: 'inner', openExclamation: 'inner',
+  paragraph: 'paragraph', periodParagraph: 'endParagraph' };
+const NOTE_KIND = new Map();
 for (const w of Object.values(WORDS)) {
-  for (const [key, word] of Object.entries(w)) (/^open/.test(key) ? BEFORE : AFTER).add(word);
+  for (const [key, word] of Object.entries(w)) { (/^open/.test(key) ? BEFORE : AFTER).add(word); NOTE_KIND.set(word, KINDS[key]); }
   PARAGRAPH.add(w.paragraph);
   if (w.periodParagraph) PARAGRAPH.add(w.periodParagraph);
+}
+export const noteKind = (word) => NOTE_KIND.get(word) || null;
+
+/**
+ * The words an actor says for an annotated line, in order: the sentence's
+ * words (note: null) and each bracket note's words (note: its kind, group:
+ * one id per note), so a recording can be aligned against what was said.
+ */
+export function spokenScript(line) {
+  const tokens = [];
+  let group = 0;
+  const re = /\[([^[\]]{1,40})\]|\S+/gu;
+  for (const m of String(line || '').matchAll(re)) {
+    const kind = m[1] !== undefined ? noteKind(m[1]) : null;
+    if (m[1] !== undefined && !kind) { tokens.push({ text: m[0], note: null }); continue; } // a passage's own [sic]
+    if (kind) { group += 1; for (const word of m[1].split(/\s+/u)) tokens.push({ text: word, note: kind, group }); }
+    else tokens.push({ text: m[0], note: null });
+  }
+  return tokens;
 }
 
 const compact = (text) => String(text || '').replace(/\s+/gu, ' ').trim();

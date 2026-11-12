@@ -23,6 +23,7 @@ function DictationScreen({
   onRateChange, // assignments provide this only when the teacher allows slowing playback
   heading = 'Dictation in Progress',
   unit = 'sentence',
+  endsSentence = false,
   error,
   // Per-sentence feedback. `feedback` is `{ grade }` for the sentence just
   // answered (grade null if it could not be marked), shown in place of the
@@ -77,6 +78,7 @@ function DictationScreen({
       </div>
 
       <div className="glass-panel animate-fade-in">
+        {unit === 'segment' && endsSentence && !isSpeaking && !isLoading && <p className="field-hint">End of sentence</p>}
         <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', justifyContent: 'center', alignItems: 'center' }}>
           <button
             className="btn-primary"

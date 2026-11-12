@@ -1,3 +1,4 @@
+import { splitIntoSentences } from '../src/lib/sentences.js';
 // Drives the worker against an in-memory R2 stub, end to end: `npm run test:worker`.
 //
 // The checks worth keeping an eye on are the ones about the passage text. A
@@ -756,6 +757,12 @@ for (const mode of ['typing', 'notebook']) {
     check(`${label}: student metadata reports delivery without revealing the passage`, started.status === 200
       && started.payload.meta.delivery === delivery && started.payload.meta.sentenceCount === segments.length
       && !JSON.stringify(started.payload).includes('village'));
+    check(`${label}: sentence end cues expose only boundary flags`,
+      Array.isArray(started.payload.meta.sentenceEnds)
+      && started.payload.meta.sentenceEnds.length === segments.length
+      && started.payload.meta.sentenceEnds.every((flag) => typeof flag === 'boolean')
+      && started.payload.meta.sentenceEnds.at(-1) === true
+      && started.payload.meta.sentenceEnds.filter(Boolean).length === splitIntoSentences(notebookText).length);
     check(`${label}: student receives the teacher's slowdown permission`, started.payload.meta.allowSlowdown === allowSlowdown);
     for (let i = 0; i < segments.length; i++) {
       const answer = await call(`/api/assignments/${choiceCode}/answer`, {

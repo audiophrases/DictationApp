@@ -4,7 +4,7 @@ import { SPEEDS } from '../lib/options';
 
 // Assignments provide `onRateChange` only when the teacher allows students
 // to slow the recording. Practice can record again at another voice speed.
-export default function NotebookScreen({ heading = 'Notebook dictation', unit = 'segment', count, index, onMove, onRepeat, onFinish, isSpeaking, isLoading = false, loading = false, replaysLeft, error, rate, onRateChange }) {
+export default function NotebookScreen({ heading = 'Notebook dictation', unit = 'segment', endsSentence = false, count, index, onMove, onRepeat, onFinish, isSpeaking, isLoading = false, loading = false, replaysLeft, error, rate, onRateChange }) {
   const canReplay = replaysLeft === null || replaysLeft > 0;
   useEffect(() => {
     const onKey = (event) => {
@@ -32,7 +32,8 @@ export default function NotebookScreen({ heading = 'Notebook dictation', unit = 
       <BookOpen size={44} aria-hidden="true" />
       <h2>Listen and write in your notebook</h2>
       <p className="field-hint">Listen to each {unit} and write by hand.</p>
-      <p className="field-hint">Sentence endings are spoken aloud: for example, “period” means write a full stop, not the word “period”.</p>
+      <p className="field-hint">If punctuation is spoken aloud, “period” means write a full stop, not the word “period”.</p>
+      {unit === 'segment' && endsSentence && !isSpeaking && !isLoading && <p className="field-hint">End of sentence</p>}
       <p aria-live="polite">{loading
         ? <><Loader2 size={16} className="spin" style={{ verticalAlign: 'middle' }} /> Recording at this speed…</>
         : isLoading ? <><Loader2 size={16} className="spin" style={{ verticalAlign: 'middle' }} /> Loading audio…</>

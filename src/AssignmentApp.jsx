@@ -456,7 +456,7 @@ function AssignmentApp({ code }) {
   const practising = phase === 'practice';
 
   if (meta?.mode === 'notebook') {
-    return <NotebookScreen heading={practising ? `${meta.title} · practice` : meta.title} count={meta.sentenceCount} index={currentIndex} unit={dictationUnit(meta)}
+    return <NotebookScreen endsSentence={!!meta.sentenceEnds?.[currentIndex]} heading={practising ? `${meta.title} · practice` : meta.title} count={meta.sentenceCount} index={currentIndex} unit={dictationUnit(meta)}
       onMove={(index) => {
         stop();
         if (!practising) saveAnswer(code, attemptId, currentIndex, '').catch(() => {});
@@ -471,6 +471,7 @@ function AssignmentApp({ code }) {
 
   return (
     <DictationScreen
+      endsSentence={!!meta.sentenceEnds?.[currentIndex]}
       unit={dictationUnit(meta)}
       heading={practising ? `${meta.title} · practice (not recorded)` : meta.title}
       sentenceCount={meta.sentenceCount}

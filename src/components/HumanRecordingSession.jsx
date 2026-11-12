@@ -6,8 +6,7 @@ import {
 } from '../lib/pinplaySessions';
 import { prepareHumanSentenceRecording } from '../lib/notebookAudio';
 import { alignTakes } from '../lib/browserWhisper';
-import { applyPunctuationPolicy } from '../lib/spokenPunctuationCut';
-import { hasSpokenPunctuation, scriptLevel } from '../lib/spokenPunctuation';
+import { scriptLevel } from '../lib/spokenPunctuation';
 import { describeHeard, heardPunctuation } from '../lib/punctuationPolicy';
 import WordTimingsOption from './WordTimingsOption';
 import RecordingSetupDialog from './RecordingSetupDialog';
@@ -24,16 +23,7 @@ import { wavClip } from '../lib/notebookWav';
  */
 const ALL_PLAYED = { ends: true, inner: true, paragraph: true };
 
-// What was done with the actors' spoken punctuation, for the studio's status line.
-function punctuationNote(said, heard, notes) {
-  if (!said) return '';
-  if (notes.unknown && !notes.cut && !notes.kept) return 'spoken punctuation kept as recorded (no word timings)';
-  const parts = [`students hear ${describeHeard(heard)}`];
-  if (notes.unsure || notes.unknown) parts.push(`${notes.unsure + notes.unknown} not found, kept`);
-  return parts.join(', ');
-}
-
-// The level the setup dialog starts on: what this dictation lets students hear.
+// Suggested instructions for new takes, independent of existing recordings.
 function suggestedLevel(policy, mode) {
   if (mode === 'notebook' || policy?.inner) return 'all';
   return policy?.ends ? 'ends' : 'none';
@@ -125,7 +115,7 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
   }
   // No synthetic cue is ever added to a human take: actors say the
   // punctuation the teacher chose in the setup, or none.
-  const studioKey = (current) => `${sessionTakesKey(current)}|${timings}|${JSON.stringify(policy)}`;
+  const studioKey = (current) => `${sessionTakesKey(current)}|${timings}`;
   const kept = !!(studio && session && studio.key === studioKey(session));
 
   // Straight from a loaded session to the studio once every sentence has a
@@ -149,32 +139,20 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
         takes.push({ sentence: plan[i].sentence, buffer: trimTake(await bufferFor(line, context, signal), line.trim, context) });
         if (signal.aborted) return;
       }
-      // Word timings from speech recognition in this browser, so the cuts
-      // fall between the right words; a sentence it can't follow keeps
-      // its pause-based cuts. Where the actors said the punctuation, the
-      // same words decide what students hear of it (punctuationPolicy.js).
+      // Recognition locates phrase boundaries only. Spoken cues stay in the take.
       const said = sessionSaysPunctuation(latest);
-      const played = policy || ALL_PLAYED;
-      // What students hear dictated, and so what checked punctuation marks:
-      // what the actors were asked to say, less what this dictation cuts.
-      const heard = said ? heardPunctuation(scriptLevel(latest.lines.map((line) => line.text)), played) : '';
-      const found = timings ? await alignTakes(takes, lang, { onProgress: setMessage, signal, withHeard: true }) : [];
+      const heard = said ? heardPunctuation(scriptLevel(latest.lines.map((line) => line.text)), ALL_PLAYED) : '';
+      const found = timings ? await alignTakes(takes, lang, { onProgress: setMessage, signal }) : [];
       if (signal.aborted) return;
-      const notes = { kept: 0, cut: 0, unsure: 0, unknown: 0 };
       for (let i = 0; i < plan.length; i++) {
         setMessage(`Preparing sentence ${i + 1} of ${plan.length}…`);
-        let { buffer } = takes[i];
-        let boundaries = found[i]?.boundaries || null;
-        if (said && hasSpokenPunctuation(latest.lines[i].text)) {
-          const applied = found[i]?.heard ? applyPunctuationPolicy(latest.lines[i].text, found[i].heard, buffer, played, context) : null;
-          if (applied) { ({ buffer, boundaries } = applied); notes.kept += applied.notes.kept; notes.cut += applied.notes.cut; notes.unsure += applied.notes.unsure; }
-          else notes.unknown += 1;
-        }
+        const { buffer } = takes[i];
+        const boundaries = found[i] || null;
         results.push({ ...await prepareHumanSentenceRecording(plan[i], buffer, { lang, rate, context, signal, boundaries }), dictated: heard });
         if (signal.aborted) return;
       }
       setMessage('');
-      setStudio({ key, recordings: results, note: punctuationNote(said, heard, notes) });
+      setStudio({ key, recordings: results, note: `Spoken punctuation kept as recorded. This recording dictates ${describeHeard(heard)}.` });
       setInStudio(true);
     } finally { await context.close(); }
   }
@@ -253,7 +231,7 @@ export default function HumanRecordingSession({ plan, passage, title, lang, rate
       {setupOpen && <RecordingSetupDialog plan={plan} title={title} busy={busy} error={error} createsAssignment={!!createDraft && !draftCode}
         initialLevel={suggestedLevel(policy, mode)}
         scriptFor={(level) => sessionScript(plan, { lang, passage, level })}
-        heardFor={(level) => describeHeard(heardPunctuation(level, policy || ALL_PLAYED))}
+        heardFor={(level) => describeHeard(heardPunctuation(level, ALL_PLAYED))}
         onClose={() => { if (!busy) setSetupOpen(false); }}
         onCreate={({ level, speakers, title: sessionTitle }) => run(async (signal) => {
           const fields = sessionFields(plan, speakers, sessionTitle, { lang, passage, level });

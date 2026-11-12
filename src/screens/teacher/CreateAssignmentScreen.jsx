@@ -4,7 +4,7 @@ import { SPEEDS, LANGUAGES, REPLAY_LIMITS, FEEDBACK_MODES } from '../../lib/opti
 import { DEFAULT_GRADING_OPTIONS } from '../../lib/grading';
 import { createAssignment, publishAssignment, updateAssignmentContent, updateAssignmentSettings } from '../../lib/assignmentApi';
 import { sameSegmentPlan } from '../../lib/notebookShared';
-import { SPOKEN_PUNCTUATION_CHOICES, spokenPunctuationPolicy, describeSpokenPunctuation } from '../../lib/punctuationPolicy';
+import { spokenPunctuationRule } from '../../lib/punctuationPolicy';
 import { recordSentences } from '../../lib/buildAssignment';
 import { studentLink } from '../../lib/appLinks';
 import AudioSplitStudio from '../../components/DictationAudioWorkflow';
@@ -38,9 +38,8 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
   // Starts from the app-wide defaults so a new assignment marks the way free
   // practice does unless the teacher says otherwise — one place to change, not two.
   const [grading, setGrading] = useState({ ...DEFAULT_GRADING_OPTIONS });
-  const [spokenPunctuation, setSpokenPunctuation] = useState('auto');
-  // What students hear of the spoken punctuation (punctuationPolicy.js).
-  const policy = useMemo(() => spokenPunctuationPolicy({ mode, delivery, grading, spokenPunctuation }), [mode, delivery, grading, spokenPunctuation]);
+  // Suggested actor instructions; never a playback filter.
+  const policy = useMemo(() => spokenPunctuationRule({ mode, delivery, grading }), [mode, delivery, grading]);
 
   const preparedAudio = useRef(null);
   const [phase, setPhase] = useState('form'); // form | studio | recording | done
@@ -74,7 +73,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
 
   const fields = () => ({
     text: passage, mode, delivery, segments, title, className, dueAt: endOfDay(due),
-    attemptsLimit, maxListens, feedbackMode, lang, rate, allowSlowdown, grading, spokenPunctuation,
+    attemptsLimit, maxListens, feedbackMode, lang, rate, allowSlowdown, grading,
   });
 
   // The draft behind a recording session: created before the session, so
@@ -117,6 +116,7 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
     setError('');
     let createdCode = '';
     try {
+      const finalGrading = { ...grading, ...(preparedAudio.current?.dictatedPunctuation ? {} : { ignorePunctuation: true }) };
       const reviewed = preparedAudio.current?.segments || segments;
       let newCode = draftCode;
       let list = draftSentences.current;
@@ -128,9 +128,9 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
           draftSentences.current = list;
         }
         // Settings the teacher may have changed since the draft was made.
-        await updateAssignmentSettings(draftCode, { title, className, dueAt: endOfDay(due), attemptsLimit, maxListens, feedbackMode, allowSlowdown, grading, spokenPunctuation, dictatedPunctuation: preparedAudio.current?.dictatedPunctuation ?? '' });
+        await updateAssignmentSettings(draftCode, { title, className, dueAt: endOfDay(due), attemptsLimit, maxListens, feedbackMode, allowSlowdown, grading: finalGrading, dictatedPunctuation: preparedAudio.current?.dictatedPunctuation ?? '' });
       } else {
-        ({ code: newCode, sentences: list } = await createAssignment({ ...fields(), segments: reviewed, dictatedPunctuation: preparedAudio.current?.dictatedPunctuation ?? '' }));
+        ({ code: newCode, sentences: list } = await createAssignment({ ...fields(), grading: finalGrading, segments: reviewed, dictatedPunctuation: preparedAudio.current?.dictatedPunctuation ?? '' }));
       }
       createdCode = newCode;
       setCode(newCode);
@@ -357,19 +357,11 @@ function CreateAssignmentScreen({ onCancel, onFinished, requireServer }) {
             <p className="field-hint">
               All three are ignored by default, so only the words count. Choose Check for a
               spelling-focused task. Fixed when you create the assignment — students can't loosen
-              it to re-mark themselves. With Check, only the punctuation students hear dictated is marked: none with TTS and studio voices, and with voice actors what they were asked to say (less what the dictation leaves out). The rest is shown in the feedback, never deducted.
+              it to re-mark themselves. With Check, only the punctuation students hear dictated is marked: none with TTS and studio voices, and with voice actors what they were asked to say. The rest is shown in the feedback, never deducted.
             </p>
           </div>}
 
-          <div>
-            <label className="field-label" htmlFor="assignment-spoken-punctuation">Spoken punctuation</label>
-            <select id="assignment-spoken-punctuation" value={spokenPunctuation} onChange={(e) => setSpokenPunctuation(e.target.value)} style={{ width: '100%' }}>
-              {SPOKEN_PUNCTUATION_CHOICES.map((c) => <option key={c.value} value={c.value}>{c.name}</option>)}
-            </select>
-            <p className="field-hint">
-              Students hear punctuation they have to produce: sentence ends in notebooks and segmented dictations, colons, semicolons and quotes when Punctuation is marked, new paragraphs in notebooks. With these settings: {describeSpokenPunctuation(policy)}. Applies to voice actors’ spoken punctuation, cut out where not played; TTS and studio voices never dictate punctuation.
-            </p>
-          </div>
+          <p className="field-hint">Spoken punctuation is kept as recorded. Choose what actors say when setting up a recording session. Changing assignment settings never removes spoken words.</p>
 
           <div>
             <label className="field-label">Passage</label>

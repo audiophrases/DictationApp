@@ -45,3 +45,13 @@ test('phrases regroup into their sentences, and sentences re-cut into phrases', 
 
   assert.throws(() => regroupRecordings(context, phrases, buffers.slice(1), { lang: 'en-US', delivery: 'sentences' }));
 });
+
+test('changing delivery retains the recording punctuation metadata', () => {
+  for (const delivery of ['sentences', 'phrases']) {
+    const recordings = regroupRecordings(context, ['Moving abroad helped him understand his own culture.'], [clip(0.4, 4)], {
+      lang: 'en-US', delivery, dictatedPunctuation: 'ends,inner,commas',
+    });
+    assert.ok(recordings.every((recording) => recording.dictated === 'ends,inner,commas'));
+    assert.equal(recordings[0].buffer.duration, 4.4);
+  }
+});

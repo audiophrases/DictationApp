@@ -14,9 +14,8 @@ import { deliveryFor, dictationUnit } from '../../lib/delivery';
 import AudioSplitStudio from '../../components/DictationAudioWorkflow';
 import { segmentGroups, sameSegmentPlan } from '../../lib/notebookShared';
 import { regroupRecordings } from '../../lib/reuseAudio';
-import { SPOKEN_PUNCTUATION_CHOICES, spokenPunctuationPolicy, describeHeard } from '../../lib/punctuationPolicy';
+import { spokenPunctuationRule, describeHeard } from '../../lib/punctuationPolicy';
 
-const SPOKEN_PUNCTUATION_HINT = 'By the rule, students hear punctuation they have to produce: sentence ends in notebooks and segmented dictations (how else would a segment be known to close the sentence?), colons, semicolons and quotes when Punctuation is marked, new paragraphs in notebooks only. Applies to voice actors’ spoken punctuation, cut out where not played; TTS and studio voices never dictate punctuation.';
 import MarkingRules from '../../components/MarkingRules';
 
 const toDateInput = (ms) => {
@@ -87,7 +86,7 @@ function SettingsSection({ code, data, onSaved }) {
     allowSlowdown: !!record.settings?.allowSlowdown,
     practiceAfter: !!record.practiceAfter,
     grading: record.grading,
-    spokenPunctuation: record.spokenPunctuation || 'auto',
+    dictatedPunctuation: record.dictatedPunctuation ?? null,
   }));
   const [status, setStatus] = useState({ saving: false, saved: false, error: '' });
   const set = (key, value) => { setForm((f) => ({ ...f, [key]: value })); setStatus((s) => ({ ...s, saved: false })); };
@@ -95,6 +94,7 @@ function SettingsSection({ code, data, onSaved }) {
   async function save() {
     setStatus({ saving: true, saved: false, error: '' });
     try {
+      if (!handedIn && form.dictatedPunctuation === null) throw new Error('Identify the punctuation spoken in this recording before saving.');
       const modeChange = form.mode !== record.mode;
       if (modeChange && attempts.length && !window.confirm(`Changing the dictation mode clears the ${attempts.length} student attempt${attempts.length === 1 ? '' : 's'} so far. The text and recordings stay. Continue?`)) {
         setStatus({ saving: false, saved: false, error: '' });
@@ -109,9 +109,9 @@ function SettingsSection({ code, data, onSaved }) {
         maxListens: form.maxListens,
         allowSlowdown: form.allowSlowdown,
         practiceAfter: form.practiceAfter,
-        spokenPunctuation: form.spokenPunctuation,
         ...(notebook ? {} : { feedbackMode: form.feedbackMode }),
-        ...(notebook || handedIn ? {} : { grading: form.grading }),
+        ...(handedIn ? {} : { dictatedPunctuation: form.dictatedPunctuation }),
+        ...(notebook || handedIn ? {} : { grading: { ...form.grading, ...(form.dictatedPunctuation === '' ? { ignorePunctuation: true } : {}) } }),
       });
       setStatus({ saving: false, saved: true, error: '' });
       onSaved();
@@ -163,13 +163,19 @@ function SettingsSection({ code, data, onSaved }) {
         <input type="checkbox" checked={form.allowSlowdown} onChange={(e) => set('allowSlowdown', e.target.checked)} />
         Allow students to slow playback
       </label>
-      <div>
-        <label className="field-label" htmlFor="edit-spoken-punctuation">Spoken punctuation</label>
-        <select id="edit-spoken-punctuation" value={form.spokenPunctuation} onChange={(e) => set('spokenPunctuation', e.target.value)} style={{ width: '100%' }}>
-          {SPOKEN_PUNCTUATION_CHOICES.map((c) => <option key={c.value} value={c.value}>{c.name}</option>)}
+      {!handedIn && <div>
+        <label className="field-label" htmlFor="recorded-punctuation">Punctuation spoken in this recording</label>
+        <select id="recorded-punctuation" value={form.dictatedPunctuation ?? 'unknown'} onChange={(e) => set('dictatedPunctuation', e.target.value)}>
+          {form.dictatedPunctuation !== null && !['', 'ends', 'ends,inner', 'ends,inner,commas'].includes(form.dictatedPunctuation) && <option value={form.dictatedPunctuation}>{describeHeard(form.dictatedPunctuation)}</option>}
+          <option value="unknown" disabled>Unknown — listen and identify it</option>
+          <option value="">None</option>
+          <option value="ends">Sentence endings</option>
+          <option value="ends,inner">Endings and inner marks</option>
+          <option value="ends,inner,commas">Everything, including commas</option>
         </select>
-        <p className="field-hint">{SPOKEN_PUNCTUATION_HINT} Applies the next time recordings are brought into the splitting studio.</p>
-      </div>
+        <p className="field-hint">Describes the existing audio for marking; it does not edit the recording. Listen before correcting this information.</p>
+      </div>}
+      <p className="field-hint">Spoken punctuation stays as recorded when modes or marking settings change. This recording dictates {describeHeard(record.dictatedPunctuation)}. Previously removed speech can only be restored by importing the original takes again and reviewing their splits.</p>
       <label className="edit-check">
         <input type="checkbox" checked={form.practiceAfter} disabled={!notebook && form.feedbackMode === 'none'}
           onChange={(e) => set('practiceAfter', e.target.checked)} />
@@ -186,8 +192,8 @@ function SettingsSection({ code, data, onSaved }) {
         <label className="field-label">Marking</label>
         {handedIn
           ? <p className="field-hint">Locked: students have handed in, and their scores were marked with these rules. Editing the text clears their work and unlocks it.</p>
-          : <MarkingRules value={form.grading} onChange={(grading) => set('grading', grading)} />}
-        <p className="field-hint">With Check, only the punctuation students hear dictated is marked: none with TTS and studio voices, and with voice actors what they were asked to say (less what the dictation leaves out). The rest is shown in the feedback, never deducted. This recording dictates {describeHeard(record.dictatedPunctuation)}.</p>
+          : <MarkingRules dictatedPunctuation={form.dictatedPunctuation} value={form.grading} onChange={(grading) => set('grading', grading)} />}
+        <p className="field-hint">With Check, only the punctuation students hear dictated is marked: none with TTS and studio voices, and with voice actors what they were asked to say. The rest is shown in the feedback, never deducted. This recording dictates {describeHeard(record.dictatedPunctuation)}.</p>
       </div>}
       {status.error && <div className="fetch-error" style={{ marginTop: '0.75rem' }}>{status.error}</div>}
       <div className="edit-actions">
@@ -212,8 +218,8 @@ function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
   // phrases and full sentences here, keeping the recordings.
   const currentDelivery = deliveryFor(record);
   const [targetDelivery, setTargetDelivery] = useState(currentDelivery);
-  // What students hear of the spoken punctuation, for the reading chosen here.
-  const policy = useMemo(() => spokenPunctuationPolicy({ ...record, delivery: targetDelivery }), [record, targetDelivery]);
+  // Suggested instructions for a new actor session; existing audio stays intact.
+  const policy = useMemo(() => spokenPunctuationRule({ ...record, delivery: targetDelivery }), [record, targetDelivery]);
   const studioPlan = useMemo(() => targetDelivery === currentDelivery
     ? groups.map((group) => ({ sentence: group.sentence, segments: sentences.slice(group.start, group.start + group.count) }))
     : notebookPlan(data.text, record.settings.lang, targetDelivery),
@@ -233,10 +239,10 @@ function RecordingsSection({ code, data, onSaved, requireServer, loadTakes }) {
           if (signal.aborted) return [];
           buffers.push(await context.decodeAudioData(await blob.arrayBuffer()));
         }
-        return regroupRecordings(context, sentences, buffers, { lang: record.settings.lang, delivery: targetDelivery });
+        return regroupRecordings(context, sentences, buffers, { lang: record.settings.lang, delivery: targetDelivery, dictatedPunctuation: record.dictatedPunctuation });
       } finally { await context.close(); }
     },
-  }), [code, sentences, record.settings.lang, targetDelivery, currentDelivery]);
+  }), [code, sentences, record.settings.lang, record.dictatedPunctuation, targetDelivery, currentDelivery]);
   const [rate, setRate] = useState(record.settings?.rate ?? 1);
   const [busy, setBusy] = useState(null); // null | 'all' | index
   const [progress, setProgress] = useState('');

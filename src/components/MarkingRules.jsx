@@ -14,12 +14,13 @@ const RULES = [
   { key: 'ignoreAccents', name: 'Accents', expected: 'café', typed: 'cafe' },
 ];
 
-function MarkingRules({ value, onChange }) {
+function MarkingRules({ value, onChange, dictatedPunctuation }) {
   const id = useId();
   return (
     <div className="marking-rules">
       {RULES.map((rule) => {
-        const ignored = !!value[rule.key];
+        const unavailable = rule.key === 'ignorePunctuation' && dictatedPunctuation === '';
+        const ignored = unavailable || !!value[rule.key];
         const set = (next) => onChange({ ...value, [rule.key]: next });
         return (
           <div key={rule.key} className="rule-row">
@@ -28,7 +29,7 @@ function MarkingRules({ value, onChange }) {
               <div className={`rule-example ${ignored ? 'badge-good' : 'badge-poor'}`}>
                 {ignored ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
                 <span>
-                  “{rule.typed}” for “{rule.expected}” {ignored ? 'is accepted' : 'is marked wrong'}
+                  {unavailable ? 'This recording dictates no punctuation; punctuation is not marked.' : <>“{rule.typed}” for “{rule.expected}” {ignored ? 'is accepted' : 'is marked wrong'}</>}
                 </span>
               </div>
             </div>
@@ -38,7 +39,7 @@ function MarkingRules({ value, onChange }) {
                 <span>Ignore</span>
               </label>
               <label>
-                <input type="radio" name={`${id}-${rule.key}`} checked={!ignored} onChange={() => set(false)} />
+                <input type="radio" name={`${id}-${rule.key}`} disabled={unavailable} checked={!ignored} onChange={() => set(false)} />
                 <span>Check</span>
               </label>
             </div>

@@ -82,7 +82,7 @@ export default function RecordingSetupDialog({ plan, title, initialLevel, script
         <h3 id="setup-step-title">What do the actors say aloud?</h3>
         <p className="setup-description">The punctuation they dictate is the punctuation students hear, and the only punctuation that can be marked when Punctuation is set to Check. Commas are never said unless you choose the last option.</p>
         <Choices group="level" options={DICTATION_LEVELS} value={level} onChange={setLevel} labelledBy="setup-step-title" />
-        <p className="setup-note">With this dictation’s settings, students will hear (and Check will mark) <strong>{heardFor(level)}</strong>.</p>
+        <p className="setup-note">The recording will retain (and Check can mark) <strong>{heardFor(level)}</strong>.</p>
         <p className="setup-note">Example: <em>{script[0]}</em></p>
       </>}
       {step === 1 && <>

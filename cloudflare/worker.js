@@ -32,7 +32,7 @@
 // draft/publish step.
 import { gradeDictation, gradeSentence, DEFAULT_GRADING_OPTIONS } from '../src/lib/grading.js';
 import { splitIntoSentences } from '../src/lib/sentences.js';
-import { validatedNotebookSegments } from '../src/lib/notebookShared.js';
+import { validatedNotebookSegments, segmentGroups } from '../src/lib/notebookShared.js';
 import { deliveryFor } from '../src/lib/delivery.js';
 import { audioClipKey, encryptAudio, newAudioSecret } from './audioCache.js';
 import { encodeAudioKey } from '../src/lib/audioCipher.js';
@@ -532,8 +532,7 @@ async function createAssignment(env, body) {
           },
     source: body.source && typeof body.source === 'object' ? body.source : null,
     recording: app === 'ipa' ? null : recordingFrom(body.recording) || null,
-    // Which spoken punctuation students hear: 'auto' follows the rule in the
-    // app (src/lib/punctuationPolicy.js); the teacher may fix it instead.
+    // Legacy field retained for older clients; current clients preserve all spoken cues.
     spokenPunctuation: spokenPunctuationChoice(body.spokenPunctuation),
     // Which punctuation the recording dictates, so that checked punctuation
     // marks only what students could hear: 'none' (TTS, studio voices),
@@ -915,6 +914,7 @@ function nextIndex(attempt, count) {
 }
 
 function studentMeta(record) {
+  const sentenceEnds = new Set(record.app === 'ipa' ? [] : segmentGroups(record.sentences || []).map((group) => group.start + group.count - 1));
   return {
     code: record.code,
     app: record.app,
@@ -925,6 +925,7 @@ function studentMeta(record) {
     title: record.title,
     className: record.className,
     sentenceCount: record.sentenceCount,
+    sentenceEnds: record.app === 'ipa' ? undefined : (record.sentences || []).map((_, index) => sentenceEnds.has(index)),
     maxListens: record.maxListens,
     attemptsLimit: record.attemptsLimit,
     feedbackMode: record.feedbackMode,

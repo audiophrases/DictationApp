@@ -34,7 +34,7 @@ export function joinClips(context, buffers) {
  * `delivery`: one recording per sentence, its audio joined from the clips the
  * sentence had, cut into phrases from the language's phrase plan when asked.
  */
-export function regroupRecordings(context, sentences, buffers, { lang, delivery }) {
+export function regroupRecordings(context, sentences, buffers, { lang, delivery, dictatedPunctuation = '' }) {
   if (buffers.length !== sentences.length) throw new Error('Every recording is needed to re-cut them.');
   const groups = segmentGroups(sentences);
   const plan = delivery === 'phrases' ? notebookPlan(groups.map((g) => g.sentence).join('\n'), lang, 'phrases') : null;
@@ -42,6 +42,6 @@ export function regroupRecordings(context, sentences, buffers, { lang, delivery 
   return groups.map((group, i) => {
     const buffer = joinClips(context, buffers.slice(group.start, group.start + group.count));
     const segments = plan ? plan[i].segments : [group.sentence];
-    return takeRecording({ sentence: group.sentence, segments }, buffer, { source: 'reused' });
+    return { ...takeRecording({ sentence: group.sentence, segments }, buffer, { source: 'reused' }), dictated: dictatedPunctuation };
   });
 }
